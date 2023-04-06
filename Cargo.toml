@@ -1,0 +1,5 @@
+[workspace]
+members = [
+	"src/shroom_net",
+	"src/shroom_net_derive"
+]
