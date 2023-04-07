@@ -1,9 +1,21 @@
-use std::{io, str::Utf8Error};
+use std::{io, str::Utf8Error, fmt::Display};
 
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 
 use crate::packet::analyzer::PacketDataAnalytics;
+
+#[derive(Debug)]
+pub struct EOFErrorData {
+    pub analytics: PacketDataAnalytics,
+    pub type_name: &'static str
+}
+
+impl Display for EOFErrorData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "eof packet(type={}): {}", self.type_name, self.analytics)
+    }
+}
 
 
 #[derive(Debug, Error)]
@@ -12,11 +24,8 @@ pub enum NetError {
     IO(#[from] io::Error),
     #[error("string utf8 error")]
     StringUtf8(#[from] Utf8Error),
-    #[error("EOF error during reading a packet(type={type_name}): {analytics}")]
-    EOF {
-        analytics: Box<PacketDataAnalytics>,
-        type_name: &'static str,
-    },
+    #[error("EOF error: {0}")]
+    EOF(Box<EOFErrorData>),
     #[error("String limit {0} exceeed")]
     StringLimit(usize),
     #[error("Invalid header with key: {key:X}, expected: {expected_key:X}, len: {len}")]
@@ -44,23 +53,24 @@ pub enum NetError {
     #[error("Migrated")]
     Migrated,
     #[error("Out of capacity")]
-    OutOfCapacity
+    OutOfCapacity,
+    #[error("Ping timeout")]
+    PingTimeout
 }
 
 impl NetError {
     pub fn eof<T>(data: &[u8], read_len: usize) -> Self {
         let type_name = std::any::type_name::<T>();
         let pos = data.len().saturating_sub(read_len);
-
-        Self::EOF {
-            analytics: Box::new(PacketDataAnalytics::from_data(
+        Self::EOF(Box::new(EOFErrorData {
+            analytics: PacketDataAnalytics::from_data(
                 data,
                 pos,
                 read_len,
                 read_len * 5,
-            )),
+            ),
             type_name,
-        }
+        }))
     }
 }
 

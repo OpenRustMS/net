@@ -1,19 +1,20 @@
-pub mod session_set;
-pub mod framed_pipe;
+pub mod handler;
 pub mod packet_buffer;
+pub mod resp;
+pub mod server_sess;
+pub mod session_set;
 
 use arrayvec::ArrayString;
 
 use super::{codec::handshake::Handshake, crypto::RoundKey};
 
-pub mod handler;
-pub mod resp;
-pub mod session_svc;
-
+/// Handshake generator, to generate a handshake
 pub trait HandshakeGenerator {
+    /// Generate a new handshake
     fn generate_handshake(&self) -> Handshake;
 }
 
+/// Implementation of a very basic Handshake generator
 #[derive(Debug, Clone)]
 pub struct BasicHandshakeGenerator {
     version: u16,
@@ -41,6 +42,7 @@ impl BasicHandshakeGenerator {
 
 impl HandshakeGenerator for BasicHandshakeGenerator {
     fn generate_handshake(&self) -> Handshake {
+        // Using thread_rng to generate the round keys
         let mut rng = rand::thread_rng();
         Handshake {
             version: self.version,

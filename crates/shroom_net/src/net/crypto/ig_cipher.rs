@@ -9,7 +9,7 @@ pub struct IgCipher {
 
 impl Default for IgCipher {
     fn default() -> Self {
-        Self::new(DEFAULT_SHUFFLE_KEY.clone())
+        Self::new(*DEFAULT_SHUFFLE_KEY)
     }
 }
 

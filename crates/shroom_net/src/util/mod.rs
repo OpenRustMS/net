@@ -1,3 +1,7 @@
+pub mod framed_pipe;
+
+
+
 /// Helper type to calculate size hint
 pub struct SizeHint(pub Option<usize>);
 
@@ -13,5 +17,16 @@ impl SizeHint {
             (Some(a), Some(b)) => Some(a + b),
             _ => None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn size_hint_add() {
+        assert_eq!(SizeHint::zero().add(SizeHint(None)).0, None);
+        assert_eq!(SizeHint::zero().add(SizeHint(Some(1))).0, Some(1));
     }
 }

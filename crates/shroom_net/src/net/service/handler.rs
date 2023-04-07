@@ -10,15 +10,18 @@ use crate::{
 };
 
 use super::{
-    resp::{IntoResponse, Response},
-    session_svc::SharedSessionHandle,
+    resp::{IntoResponse, Response}, server_sess::SharedSessionHandle,
 };
 
 pub type BroadcastSender = mpsc::Sender<ShroomPacket>;
 
+/// Session handle result
 pub enum SessionHandleResult {
+    /// Indicates this handler finished succesfully
     Ok,
+    /// Indicates the session to start a migration
     Migrate,
+    /// Signalling a Pong response was received
     Pong,
 }
 
@@ -71,6 +74,8 @@ pub trait MakeServerSessionHandler {
 // in the session to avoid having 2 mut references, however It'd be quiet a challenge to call self methods
 // on the state, cause you'd still like to have a session to send packets
 
+
+/// Call a the specified handler function `f` and process the returned response
 pub async fn call_handler_fn<'session, F, Req, Fut, Trans, State, Resp, Err>(
     state: &'session mut State,
     session: &'session mut ShroomSession<Trans>,
@@ -78,12 +83,12 @@ pub async fn call_handler_fn<'session, F, Req, Fut, Trans, State, Resp, Err>(
     mut f: F,
 ) -> Result<SessionHandleResult, Err>
 where
-    Trans: SessionTransport + Send + Unpin,
-    F: FnMut(&'session mut State, Req) -> Fut,
-    Fut: Future<Output = Result<Resp, Err>>,
     Req: DecodePacket<'session>,
     Resp: IntoResponse,
     Err: From<NetError>,
+    Fut: Future<Output = Result<Resp, Err>>,
+    F: FnMut(&'session mut State, Req) -> Fut,
+    Trans: SessionTransport + Send + Unpin,
 {
     let req = Req::decode_packet(&mut pr)?;
     let resp = f(state, req).await?.into_response();

@@ -187,7 +187,7 @@ mod tests {
                 loop {
                     match sess.read_packet().await {
                         Ok(pkt) => {
-                            sess.send_raw_packet(&pkt.data).await?;
+                            sess.send_raw_packet(&pkt.as_ref()).await?;
                         }
                         _ => {
                             break;
@@ -206,7 +206,7 @@ mod tests {
             for data in ECHO_DATA.iter() {
                 sess.send_raw_packet(data).await?;
                 let pkt = sess.read_packet().await?;
-                assert_eq!(pkt.data.as_ref(), *data);
+                assert_eq!(pkt.as_ref(), *data);
             }
 
             Ok(())

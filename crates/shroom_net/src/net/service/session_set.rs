@@ -1,19 +1,21 @@
-use std::{collections::BTreeMap, sync::RwLock};
+use std::hash::Hash;
+use std::sync::RwLock;
+use indexmap::IndexMap;
 
-use crate::{ShroomPacket, EncodePacket, HasOpcode, PacketWriter};
+use crate::{EncodePacket, HasOpcode, PacketWriter, ShroomPacket};
 
-use super::session_svc::SharedSessionHandle;
+use super::server_sess::SharedSessionHandle;
 
 #[derive(Debug)]
-pub struct SessionSet<Key>(RwLock<BTreeMap<Key, SharedSessionHandle>>);
+pub struct SessionSet<Key>(RwLock<IndexMap<Key, SharedSessionHandle>>);
 
-impl<Key: Eq + Ord> Default for SessionSet<Key> {
+impl<Key: Hash + Eq> Default for SessionSet<Key> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Key: Eq + Ord> SessionSet<Key> {
+impl<Key: Hash + Eq> SessionSet<Key> {
     pub fn new() -> Self {
         Self(RwLock::default())
     }
@@ -34,17 +36,17 @@ impl<Key: Eq + Ord> SessionSet<Key> {
             .ok_or_else(|| anyhow::format_err!("Unable to find session"))?
             .tx
             .clone()
-            .try_send(pkt.data)?;
+            .try_send(pkt.as_ref())?;
 
         Ok(())
     }
 
     pub fn broadcast_packet(&self, pkt: ShroomPacket, src: Key) -> anyhow::Result<()> {
-        for (key, sess) in self.0.read().expect("Session broadcast ").iter() {
+        for (key, sess) in self.0.read().expect("Session broadcast").iter() {
             if src == *key {
                 continue;
             }
-            let _ = sess.tx.clone().try_send(&pkt.data);
+            let _ = sess.tx.clone().try_send(pkt.as_ref());
         }
         Ok(())
     }

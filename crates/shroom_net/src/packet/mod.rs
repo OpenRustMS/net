@@ -22,25 +22,23 @@ pub(crate) fn shroom128_from_bytes(data: [u8; 16]) -> u128 {
 
 /// Encode a `u128` into a byte array
 pub(crate) fn shroom128_to_bytes(v: u128) -> [u8; 16] { 
-    let mut raw_flags: [u32; 4] = bytemuck::cast(v.to_le_bytes());
-    raw_flags.reverse();
-    bytemuck::cast(raw_flags)
+    let mut blocks: [u32; 4] = bytemuck::cast(v.to_le_bytes());
+    blocks.reverse();
+    bytemuck::cast(blocks)
 }
 
-
+/// Required length to encode this string
 pub(crate) fn packet_str_len(s: &str) -> usize {
     // Len + data
     2 + s.len()
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct ShroomPacket {
-    pub data: Bytes,
-}
+pub struct ShroomPacket(Bytes);
 
 impl ShroomPacket {
     pub fn from_data(data: Bytes) -> Self {
-        Self { data }
+        Self(data)
     }
 
     pub fn from_writer(pw: PacketWriter<BytesMut>) -> Self {
@@ -48,10 +46,16 @@ impl ShroomPacket {
     }
 
     pub fn into_reader(&self) -> PacketReader<'_> {
-        PacketReader::new(&self.data)
+        PacketReader::new(&self.0)
     }
 
     pub fn read_opcode(&self) -> NetResult<u16> {
         self.into_reader().read_u16()
+    }
+}
+
+impl AsRef<Bytes> for ShroomPacket {
+    fn as_ref(&self) -> &Bytes {
+        &self.0
     }
 }
