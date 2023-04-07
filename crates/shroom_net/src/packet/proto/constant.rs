@@ -1,5 +1,5 @@
 #[macro_export]
-macro_rules! maple_constant {
+macro_rules! shroom_constant {
     ($name:ident, $ty:ty, $val:expr) => {
         #[derive(Debug, Default, Clone, Copy)]
         pub struct $name;
@@ -24,4 +24,4 @@ macro_rules! maple_constant {
     };
 }
 
-maple_constant!(Zero32, u32, 0);
+shroom_constant!(Zero32, u32, 0);

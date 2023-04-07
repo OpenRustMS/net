@@ -8,9 +8,16 @@ use tokio::{
 };
 use tokio_util::codec::Framed;
 
-use crate::{NetResult, ShroomPacket, EncodePacket, opcode::{NetOpcode, HasOpcode}, PacketWriter};
+use crate::{
+    opcode::{HasOpcode, NetOpcode},
+    EncodePacket, NetResult, PacketWriter, ShroomPacket,
+};
 
-use super::{codec::{handshake::Handshake, shroom_codec::PacketCodec}, service::packet_buffer::PacketBuffer};
+use super::{
+    codec::{handshake::Handshake, packet_codec::PacketCodec},
+    crypto::ShroomCryptoKeys,
+    service::packet_buffer::PacketBuffer,
+};
 
 pub trait SessionTransport: AsyncWrite + AsyncRead {}
 impl<T> SessionTransport for T where T: AsyncWrite + AsyncRead {}
@@ -32,25 +39,32 @@ where
     }
 
     /// Initialize a server session, by sending out the given handshake
-    pub async fn initialize_server_session(mut io: T, handshake: Handshake) -> NetResult<Self> {
+    pub async fn initialize_server_session(
+        mut io: T,
+        keys: &ShroomCryptoKeys,
+        handshake: Handshake,
+    ) -> NetResult<Self> {
         handshake.write_handshake_async(&mut io).await?;
-        Ok(Self::from_server_handshake(io, handshake))
+        Ok(Self::from_server_handshake(io, keys, handshake))
     }
 
-    pub async fn initialize_client_session(mut io: T) -> NetResult<(Self, Handshake)> {
+    pub async fn initialize_client_session(
+        mut io: T,
+        keys: &ShroomCryptoKeys,
+    ) -> NetResult<(Self, Handshake)> {
         let handshake = Handshake::read_handshake_async(&mut io).await?;
-        let sess = Self::from_client_handshake(io, handshake.clone());
+        let sess = Self::from_client_handshake(io, keys, handshake.clone());
 
         Ok((sess, handshake))
     }
 
-    pub fn from_server_handshake(io: T, handshake: Handshake) -> Self {
-        let codec = PacketCodec::server_from_handshake(handshake);
+    pub fn from_server_handshake(io: T, keys: &ShroomCryptoKeys, handshake: Handshake) -> Self {
+        let codec = PacketCodec::from_server_handshake(keys, handshake);
         Self::new(io, codec)
     }
 
-    pub fn from_client_handshake(io: T, handshake: Handshake) -> Self {
-        let codec = PacketCodec::client_from_handshake(handshake);
+    pub fn from_client_handshake(io: T, keys: &ShroomCryptoKeys, handshake: Handshake) -> Self {
+        let codec = PacketCodec::from_client_handshake(keys, handshake);
         Self::new(io, codec)
     }
 
@@ -113,9 +127,12 @@ impl ShroomSession<TcpStream> {
         self.codec.get_ref().local_addr()
     }
 
-    pub async fn connect(addr: SocketAddr) -> NetResult<(Self, Handshake)> {
+    pub async fn connect(
+        addr: SocketAddr,
+        keys: &ShroomCryptoKeys,
+    ) -> NetResult<(Self, Handshake)> {
         let socket = TcpStream::connect(addr).await?;
-        Self::initialize_client_session(socket).await
+        Self::initialize_client_session(socket, keys).await
     }
 }
 
@@ -126,7 +143,11 @@ mod tests {
     use arrayvec::ArrayString;
     use turmoil::net::{TcpListener, TcpStream};
 
-    use crate::net::{crypto::RoundKey, ShroomSession, codec::handshake::Handshake};
+    use crate::net::{
+        codec::handshake::Handshake,
+        crypto::{RoundKey, ShroomCryptoKeys},
+        ShroomSession,
+    };
 
     const PORT: u16 = 1738;
 
@@ -139,6 +160,8 @@ mod tests {
         let mut sim = turmoil::Builder::new().build();
         const ECHO_DATA: [&'static [u8]; 4] = [&[0xFF; 4096], &[1, 2], &[], &[0x0; 1024]];
         const V: u16 = 83;
+
+        const DEFAULT_KEYS: ShroomCryptoKeys = ShroomCryptoKeys::with_default_keys();
 
         sim.host("server", || async move {
             let handshake = Handshake {
@@ -153,8 +176,12 @@ mod tests {
 
             loop {
                 let socket = listener.accept().await?.0;
-                let mut sess =
-                    ShroomSession::initialize_server_session(socket, handshake.clone()).await?;
+                let mut sess = ShroomSession::initialize_server_session(
+                    socket,
+                    &DEFAULT_KEYS,
+                    handshake.clone(),
+                )
+                .await?;
 
                 // Echo
                 loop {
@@ -172,7 +199,8 @@ mod tests {
 
         sim.client("client", async move {
             let socket = TcpStream::connect(("server", PORT)).await?;
-            let (mut sess, handshake) = ShroomSession::initialize_client_session(socket).await?;
+            let (mut sess, handshake) =
+                ShroomSession::initialize_client_session(socket, &DEFAULT_KEYS).await?;
             assert_eq!(handshake.version, V);
 
             for data in ECHO_DATA.iter() {

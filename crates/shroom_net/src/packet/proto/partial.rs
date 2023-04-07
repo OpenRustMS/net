@@ -79,7 +79,7 @@ macro_rules! partial_data {
             }
         }
 
-        $crate::mark_maple_bit_flags!($partial_name);
+        $crate::mark_shroom_bit_flags!($partial_name);
 
         paste::paste! {
             impl $partial_name {

@@ -4,13 +4,13 @@ use crate::{PacketReader, PacketWriter, NetResult};
 
 use super::{wrapped::PacketWrapped, DecodePacket, DecodePacketOwned, EncodePacket};
 
-pub trait MapleOptionIndex: EncodePacket + DecodePacketOwned {
+pub trait ShroomOptionIndex: EncodePacket + DecodePacketOwned {
     const NONE_VALUE: Self;
     const SOME_VALUE: Self;
     fn has_value(&self) -> bool;
 }
 
-impl MapleOptionIndex for u8 {
+impl ShroomOptionIndex for u8 {
     const NONE_VALUE: Self = 0;
     const SOME_VALUE: Self = 1;
     fn has_value(&self) -> bool {
@@ -18,7 +18,7 @@ impl MapleOptionIndex for u8 {
     }
 }
 
-impl MapleOptionIndex for bool {
+impl ShroomOptionIndex for bool {
     const NONE_VALUE: Self = false;
     const SOME_VALUE: Self = true;
     fn has_value(&self) -> bool {
@@ -27,9 +27,9 @@ impl MapleOptionIndex for bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RevMapleOptionIndex<Opt>(pub Opt);
+pub struct RevShroomOptionIndex<Opt>(pub Opt);
 
-impl<Opt> PacketWrapped for RevMapleOptionIndex<Opt>
+impl<Opt> PacketWrapped for RevShroomOptionIndex<Opt>
 where
     Opt: Copy,
 {
@@ -44,12 +44,12 @@ where
     }
 }
 
-impl<Opt> MapleOptionIndex for RevMapleOptionIndex<Opt>
+impl<Opt> ShroomOptionIndex for RevShroomOptionIndex<Opt>
 where
-    Opt: MapleOptionIndex + Copy,
+    Opt: ShroomOptionIndex + Copy,
 {
-    const NONE_VALUE: Self = RevMapleOptionIndex(Opt::SOME_VALUE);
-    const SOME_VALUE: Self = RevMapleOptionIndex(Opt::NONE_VALUE);
+    const NONE_VALUE: Self = RevShroomOptionIndex(Opt::SOME_VALUE);
+    const SOME_VALUE: Self = RevShroomOptionIndex(Opt::NONE_VALUE);
 
     fn has_value(&self) -> bool {
         !self.0.has_value()
@@ -57,12 +57,12 @@ where
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MapleOption<T, Opt> {
+pub struct ShroomOption<T, Opt> {
     pub opt: Option<T>,
     _t: PhantomData<Opt>,
 }
 
-impl<T, Opt> MapleOption<T, Opt> {
+impl<T, Opt> ShroomOption<T, Opt> {
     pub fn from_opt(opt: Option<T>) -> Self {
         Self {
             opt,
@@ -71,22 +71,22 @@ impl<T, Opt> MapleOption<T, Opt> {
     }
 }
 
-impl<T, Opt> From<MapleOption<T, Opt>> for Option<T> {
-    fn from(val: MapleOption<T, Opt>) -> Self {
+impl<T, Opt> From<ShroomOption<T, Opt>> for Option<T> {
+    fn from(val: ShroomOption<T, Opt>) -> Self {
         val.opt
     }
 }
 
-impl<T, Opt> From<Option<T>> for MapleOption<T, Opt> {
+impl<T, Opt> From<Option<T>> for ShroomOption<T, Opt> {
     fn from(value: Option<T>) -> Self {
         Self::from_opt(value)
     }
 }
 
-impl<T, Opt> EncodePacket for MapleOption<T, Opt>
+impl<T, Opt> EncodePacket for ShroomOption<T, Opt>
 where
     T: EncodePacket,
-    Opt: MapleOptionIndex,
+    Opt: ShroomOptionIndex,
 {
     fn encode_packet<B: bytes::BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         match self.opt.as_ref() {
@@ -108,10 +108,10 @@ where
     }
 }
 
-impl<'de, T, Opt> DecodePacket<'de> for MapleOption<T, Opt>
+impl<'de, T, Opt> DecodePacket<'de> for ShroomOption<T, Opt>
 where
     T: DecodePacket<'de>,
-    Opt: MapleOptionIndex,
+    Opt: ShroomOptionIndex,
 {
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         let d = Opt::decode_packet(pr)?;
@@ -125,10 +125,10 @@ where
     }
 }
 
-pub type MapleOption8<T> = MapleOption<T, u8>;
-pub type MapleOptionR8<T> = MapleOption<T, RevMapleOptionIndex<u8>>;
-pub type MapleOptionBool<T> = MapleOption<T, bool>;
-pub type MapleOptionRBool<T> = MapleOption<T, RevMapleOptionIndex<bool>>;
+pub type ShroomOption8<T> = ShroomOption<T, u8>;
+pub type ShroomOptionR8<T> = ShroomOption<T, RevShroomOptionIndex<u8>>;
+pub type ShroomOptionBool<T> = ShroomOption<T, bool>;
+pub type ShroomOptionRBool<T> = ShroomOption<T, RevShroomOptionIndex<bool>>;
 
 
 #[cfg(test)]
@@ -140,20 +140,20 @@ mod tests {
     #[test]
     fn option() {
         enc_dec_test_all([
-            MapleOption8::from_opt(Some("abc".to_string())),
-            MapleOption8::from_opt(None),
+            ShroomOption8::from_opt(Some("abc".to_string())),
+            ShroomOption8::from_opt(None),
         ]);
         enc_dec_test_all([
-            MapleOptionR8::from_opt(Some("abc".to_string())),
-            MapleOptionR8::from_opt(None),
+            ShroomOptionR8::from_opt(Some("abc".to_string())),
+            ShroomOptionR8::from_opt(None),
         ]);
         enc_dec_test_all([
-            MapleOptionBool::from_opt(Some("abc".to_string())),
-            MapleOptionBool::from_opt(None),
+            ShroomOptionBool::from_opt(Some("abc".to_string())),
+            ShroomOptionBool::from_opt(None),
         ]);
         enc_dec_test_all([
-            MapleOptionRBool::from_opt(Some("abc".to_string())),
-            MapleOptionRBool::from_opt(None),
+            ShroomOptionRBool::from_opt(Some("abc".to_string())),
+            ShroomOptionRBool::from_opt(None),
         ]);
     }
 }

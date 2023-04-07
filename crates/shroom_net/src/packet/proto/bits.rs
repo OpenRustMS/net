@@ -2,9 +2,9 @@ use super::wrapped::PacketWrapped;
 use bitflags::BitFlags;
 use packed_struct::PackedStruct;
 
-pub struct MapleBitFlags<T: BitFlags>(pub T);
+pub struct ShroomBitFlags<T: BitFlags>(pub T);
 
-impl<T: BitFlags> MapleBitFlags<T> {
+impl<T: BitFlags> ShroomBitFlags<T> {
     pub fn new(inner: T) -> Self {
         Self(inner)
     }
@@ -14,7 +14,7 @@ impl<T: BitFlags> MapleBitFlags<T> {
     }
 }
 
-impl<T> PacketWrapped for MapleBitFlags<T>
+impl<T> PacketWrapped for ShroomBitFlags<T>
 where
     T: BitFlags,
 {
@@ -30,10 +30,10 @@ where
 }
 
 #[macro_export]
-macro_rules! mark_maple_bit_flags {
+macro_rules! mark_shroom_bit_flags {
     ($ty:ty) => {
         impl $crate::packet::proto::PacketWrapped for $ty {
-            type Inner = $crate::packet::proto::bits::MapleBitFlags<$ty>;
+            type Inner = $crate::packet::proto::bits::ShroomBitFlags<$ty>;
 
             fn packet_into_inner(&self) -> Self::Inner {
                 Self::Inner::cloned(self)
@@ -46,9 +46,9 @@ macro_rules! mark_maple_bit_flags {
     };
 }
 
-pub struct MaplePacked<T: PackedStruct>(pub T);
+pub struct ShroomPacked<T: PackedStruct>(pub T);
 
-impl<T> PacketWrapped for MaplePacked<T>
+impl<T> PacketWrapped for ShroomPacked<T>
 where
     T: PackedStruct + Clone,
 {
@@ -64,17 +64,17 @@ where
 }
 
 #[macro_export]
-macro_rules! maple_mark_packed {
+macro_rules! shroom_mark_packed {
     ($ty:ty) => {
         impl $crate::proto::PacketWrapped for $ty {
-            type Inner = $crate::proto::bits::MaplePacked<$ty>;
+            type Inner = $crate::proto::bits::ShroomPacked<$ty>;
 
             fn packet_into_inner(&self) -> Self::Inner {
                 //TODO find a more efficient way to do this, cloning the struct is not good
                 // Maybe this should be a Transparent type instead of a wrapped
                 // with different into and from type
                 // in this case: into -> &T, from <- T
-                $crate::proto::bits::MaplePacked(self.clone())
+                $crate::proto::bits::ShroomPacked(self.clone())
             }
 
             fn packet_from(v: Self::Inner) -> Self {

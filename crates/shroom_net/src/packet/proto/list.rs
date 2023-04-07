@@ -7,22 +7,22 @@ use crate::{PacketReader, NetResult, PacketWriter};
 
 use super::{DecodePacket, DecodePacketOwned, EncodePacket};
 
-pub trait MapleListLen: EncodePacket + DecodePacketOwned {
+pub trait ShroomListLen: EncodePacket + DecodePacketOwned {
     fn to_len(&self) -> usize;
     fn from_len(ix: usize) -> Self;
 }
 
-pub trait MapleListIndex: MapleListLen + PartialEq {
+pub trait ShroomListIndex: ShroomListLen + PartialEq {
     const TERMINATOR: Self;
 }
 
-pub trait MapleListIndexZ: MapleListLen + PartialEq {
+pub trait ShroomListIndexZ: ShroomListLen + PartialEq {
     const TERMINATOR: Self;
 }
 
 macro_rules! impl_list_index {
     ($ty:ty) => {
-        impl MapleListLen for $ty {
+        impl ShroomListLen for $ty {
             fn to_len(&self) -> usize {
                 *self as usize
             }
@@ -32,11 +32,11 @@ macro_rules! impl_list_index {
             }
         }
 
-        impl MapleListIndex for $ty {
+        impl ShroomListIndex for $ty {
             const TERMINATOR: Self = <$ty>::MAX;
         }
 
-        impl MapleListIndexZ for $ty {
+        impl ShroomListIndexZ for $ty {
             const TERMINATOR: Self = <$ty>::MIN;
         }
     };
@@ -48,32 +48,32 @@ impl_list_index!(u32);
 impl_list_index!(u64);
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct MapleIndexList<I, T> {
+pub struct ShroomIndexList<I, T> {
     pub items: Vec<(I, T)>,
 }
 
-impl<I, T> MapleIndexList<I, T> {
+impl<I, T> ShroomIndexList<I, T> {
     pub fn iter(&self) -> slice::Iter<'_, (I, T)> {
         self.items.iter()
     }
 }
 
-impl<I, T> From<Vec<(I, T)>> for MapleIndexList<I, T> {
+impl<I, T> From<Vec<(I, T)>> for ShroomIndexList<I, T> {
     fn from(items: Vec<(I, T)>) -> Self {
         Self { items }
     }
 }
 
-impl<I, T> Default for MapleIndexList<I, T> {
+impl<I, T> Default for ShroomIndexList<I, T> {
     fn default() -> Self {
         Self { items: Vec::new() }
     }
 }
 
-impl<'de, I, T> DecodePacket<'de> for MapleIndexList<I, T>
+impl<'de, I, T> DecodePacket<'de> for ShroomIndexList<I, T>
 where
     T: DecodePacket<'de>,
-    I: MapleListIndex,
+    I: ShroomListIndex,
 {
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         let mut items = Vec::new();
@@ -87,14 +87,14 @@ where
             items.push((ix, item));
         }
 
-        Ok(MapleIndexList { items })
+        Ok(ShroomIndexList { items })
     }
 }
 
-impl<I, T> EncodePacket for MapleIndexList<I, T>
+impl<I, T> EncodePacket for ShroomIndexList<I, T>
 where
     T: EncodePacket,
-    I: MapleListIndex,
+    I: ShroomListIndex,
 {
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         let items = &self.items;
@@ -115,19 +115,19 @@ where
     }
 }
 
-/// Like `MapleIndexList`just using zero index as terminator
+/// Like `ShroomIndexList`just using zero index as terminator
 #[derive(Debug, Clone, PartialEq)]
-pub struct MapleIndexListZ<I, T> {
+pub struct ShroomIndexListZ<I, T> {
     pub items: Vec<(I, T)>,
 }
 
-impl<I, T> MapleIndexListZ<I, T> {
+impl<I, T> ShroomIndexListZ<I, T> {
     pub fn iter(&self) -> slice::Iter<'_, (I, T)> {
         self.items.iter()
     }
 }
 
-impl<I, E> FromIterator<(I, E)> for MapleIndexListZ<I, E> {
+impl<I, E> FromIterator<(I, E)> for ShroomIndexListZ<I, E> {
     fn from_iter<T: IntoIterator<Item = (I, E)>>(iter: T) -> Self {
         Self {
             items: iter.into_iter().collect(),
@@ -135,22 +135,22 @@ impl<I, E> FromIterator<(I, E)> for MapleIndexListZ<I, E> {
     }
 }
 
-impl<I, T> Default for MapleIndexListZ<I, T> {
+impl<I, T> Default for ShroomIndexListZ<I, T> {
     fn default() -> Self {
         Self { items: Vec::new() }
     }
 }
 
-impl<I, T> From<Vec<(I, T)>> for MapleIndexListZ<I, T> {
+impl<I, T> From<Vec<(I, T)>> for ShroomIndexListZ<I, T> {
     fn from(items: Vec<(I, T)>) -> Self {
         Self { items }
     }
 }
 
-impl<'de, I, T> DecodePacket<'de> for MapleIndexListZ<I, T>
+impl<'de, I, T> DecodePacket<'de> for ShroomIndexListZ<I, T>
 where
     T: DecodePacket<'de>,
-    I: MapleListIndexZ,
+    I: ShroomListIndexZ,
 {
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         let mut items = Vec::new();
@@ -168,10 +168,10 @@ where
     }
 }
 
-impl<I, T> EncodePacket for MapleIndexListZ<I, T>
+impl<I, T> EncodePacket for ShroomIndexListZ<I, T>
 where
     T: EncodePacket,
-    I: MapleListIndexZ,
+    I: ShroomListIndexZ,
 {
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         let items = &self.items;
@@ -192,18 +192,18 @@ where
     }
 }
 #[derive(Clone, PartialEq)]
-pub struct MapleList<I, T> {
+pub struct ShroomList<I, T> {
     pub items: Vec<T>,
     pub _index: PhantomData<I>,
 }
 
-impl<I, T> MapleList<I, T> {
+impl<I, T> ShroomList<I, T> {
     pub fn iter(&self) -> slice::Iter<'_, T> {
         self.items.iter()
     }
 }
 
-impl<I, E> FromIterator<E> for MapleList<I, E> {
+impl<I, E> FromIterator<E> for ShroomList<I, E> {
     fn from_iter<T: IntoIterator<Item = E>>(iter: T) -> Self {
         Self {
             items: iter.into_iter().collect(),
@@ -212,7 +212,7 @@ impl<I, E> FromIterator<E> for MapleList<I, E> {
     }
 }
 
-impl<I, T> Default for MapleList<I, T> {
+impl<I, T> Default for ShroomList<I, T> {
     fn default() -> Self {
         Self {
             items: Vec::default(),
@@ -221,7 +221,7 @@ impl<I, T> Default for MapleList<I, T> {
     }
 }
 
-impl<I, T> From<Vec<T>> for MapleList<I, T> {
+impl<I, T> From<Vec<T>> for ShroomList<I, T> {
     fn from(items: Vec<T>) -> Self {
         Self {
             items,
@@ -230,20 +230,20 @@ impl<I, T> From<Vec<T>> for MapleList<I, T> {
     }
 }
 
-impl<I, T> Debug for MapleList<I, T>
+impl<I, T> Debug for ShroomList<I, T>
 where
     T: Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MapleList")
+        f.debug_struct("ShroomList")
             .field("items", &self.items)
             .finish()
     }
 }
 
-impl<'de, I, T> DecodePacket<'de> for MapleList<I, T>
+impl<'de, I, T> DecodePacket<'de> for ShroomList<I, T>
 where
-    I: MapleListLen,
+    I: ShroomListLen,
     T: DecodePacket<'de>,
 {
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
@@ -257,9 +257,9 @@ where
     }
 }
 
-impl<I, T> EncodePacket for MapleList<I, T>
+impl<I, T> EncodePacket for ShroomList<I, T>
 where
-    I: MapleListLen,
+    I: ShroomListLen,
     T: EncodePacket,
 {
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
@@ -277,20 +277,20 @@ where
     }
 }
 
-pub type MapleList8<T> = MapleList<u8, T>;
-pub type MapleList16<T> = MapleList<u16, T>;
-pub type MapleList32<T> = MapleList<u32, T>;
-pub type MapleList64<T> = MapleList<u64, T>;
+pub type ShroomList8<T> = ShroomList<u8, T>;
+pub type ShroomList16<T> = ShroomList<u16, T>;
+pub type ShroomList32<T> = ShroomList<u32, T>;
+pub type ShroomList64<T> = ShroomList<u64, T>;
 
-pub type MapleIndexList8<T> = MapleIndexList<u8, T>;
-pub type MapleIndexList16<T> = MapleIndexList<u16, T>;
-pub type MapleIndexList32<T> = MapleIndexList<u32, T>;
-pub type MapleIndexList64<T> = MapleIndexList<u64, T>;
+pub type ShroomIndexList8<T> = ShroomIndexList<u8, T>;
+pub type ShroomIndexList16<T> = ShroomIndexList<u16, T>;
+pub type ShroomIndexList32<T> = ShroomIndexList<u32, T>;
+pub type ShroomIndexList64<T> = ShroomIndexList<u64, T>;
 
-pub type MapleIndexListZ8<T> = MapleIndexListZ<u8, T>;
-pub type MapleIndexListZ16<T> = MapleIndexListZ<u16, T>;
-pub type MapleIndexListZ32<T> = MapleIndexListZ<u32, T>;
-pub type MapleIndexListZ64<T> = MapleIndexListZ<u64, T>;
+pub type ShroomIndexListZ8<T> = ShroomIndexListZ<u8, T>;
+pub type ShroomIndexListZ16<T> = ShroomIndexListZ<u16, T>;
+pub type ShroomIndexListZ32<T> = ShroomIndexListZ<u32, T>;
+pub type ShroomIndexListZ64<T> = ShroomIndexListZ<u64, T>;
 
 #[cfg(test)]
 mod tests {
@@ -301,27 +301,27 @@ mod tests {
     #[test]
     fn list() {
         enc_dec_test_all([
-            MapleList8::from(vec![1u8, 2, 3]),
-            MapleList8::from(vec![1]),
-            MapleList8::from(vec![]),
+            ShroomList8::from(vec![1u8, 2, 3]),
+            ShroomList8::from(vec![1]),
+            ShroomList8::from(vec![]),
         ]);
     }
 
     #[test]
     fn index_list() {
         enc_dec_test_all([
-            MapleIndexList8::from(vec![(1, 1u8), (3, 2), (2, 3)]),
-            MapleIndexList8::from(vec![(0, 1)]),
-            MapleIndexList8::from(vec![]),
+            ShroomIndexList8::from(vec![(1, 1u8), (3, 2), (2, 3)]),
+            ShroomIndexList8::from(vec![(0, 1)]),
+            ShroomIndexList8::from(vec![]),
         ]);
     }
 
     #[test]
     fn index_list_z() {
         enc_dec_test_all([
-            MapleIndexList8::from(vec![(1, 1u8), (3, 2), (2, 3)]),
-            MapleIndexList8::from(vec![(1, 1)]),
-            MapleIndexList8::from(vec![]),
+            ShroomIndexList8::from(vec![(1, 1u8), (3, 2), (2, 3)]),
+            ShroomIndexList8::from(vec![(1, 1)]),
+            ShroomIndexList8::from(vec![]),
         ]);
     }
 }

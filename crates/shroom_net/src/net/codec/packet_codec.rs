@@ -1,8 +1,10 @@
 use bytes::{Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
 
-
-use crate::{net::crypto::{ShroomVersion, ShroomCrypto, PACKET_HEADER_LEN, PacketHeader}, NetResult, NetError, ShroomPacket};
+use crate::{
+    net::crypto::{PacketHeader, ShroomCrypto, ShroomVersion, PACKET_HEADER_LEN, ShroomCryptoKeys},
+    NetError, NetResult, ShroomPacket,
+};
 
 use super::{handshake::Handshake, MAX_PACKET_LEN};
 
@@ -17,19 +19,19 @@ pub struct PacketCodec {
 }
 
 impl PacketCodec {
-    pub fn client_from_handshake(handshake: Handshake) -> Self {
+    pub fn from_client_handshake(keys: &ShroomCryptoKeys, handshake: Handshake) -> Self {
         let v = ShroomVersion(handshake.version);
         Self {
-            decode: PacketDecodeCodec(ShroomCrypto::from_round_key(handshake.iv_dec, v.invert())),
-            encode: PacketEncodeCodec(ShroomCrypto::from_round_key(handshake.iv_enc, v)),
+            decode: PacketDecodeCodec(ShroomCrypto::new(keys, handshake.iv_dec, v.invert())),
+            encode: PacketEncodeCodec(ShroomCrypto::new(keys, handshake.iv_enc, v))
         }
     }
 
-    pub fn server_from_handshake(handshake: Handshake) -> Self {
+    pub fn from_server_handshake(keys: &ShroomCryptoKeys, handshake: Handshake) -> Self {
         let v = ShroomVersion(handshake.version);
         Self {
-            decode: PacketDecodeCodec(ShroomCrypto::from_round_key(handshake.iv_enc, v)),
-            encode: PacketEncodeCodec(ShroomCrypto::from_round_key(handshake.iv_dec, v.invert())),
+            decode: PacketDecodeCodec(ShroomCrypto::new(keys, handshake.iv_enc, v)),
+            encode: PacketEncodeCodec(ShroomCrypto::new(keys, handshake.iv_dec, v.invert()))
         }
     }
 }
@@ -105,7 +107,8 @@ impl<'a> Encoder<&'a [u8]> for PacketEncodeCodec {
 
         dst.put_slice(&self.0.encode_header(len as u16));
         dst.put_slice(item);
-        self.0.encrypt(&mut dst[PACKET_HEADER_LEN..PACKET_HEADER_LEN + len]);
+        self.0
+            .encrypt(&mut dst[PACKET_HEADER_LEN..PACKET_HEADER_LEN + len]);
         Ok(())
     }
 }

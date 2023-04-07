@@ -1,5 +1,5 @@
 #[macro_export]
-macro_rules! maple_enum_code {
+macro_rules! shroom_enum_code {
     ($name:ident, $repr_ty:ty, $($code_name:ident = $val:expr),+) => {
         #[derive(Debug, Copy, Clone, PartialEq, Eq, num_enum::TryFromPrimitive, num_enum::IntoPrimitive)]
         #[repr($repr_ty)]
@@ -7,7 +7,7 @@ macro_rules! maple_enum_code {
             $($code_name = $val,)*
         }
 
-        $crate::mark_maple_enum!($name);
+        $crate::mark_shroom_enum!($name);
     };
 
     ($name:ident, $repr_ty:ty, default($def_name:ident = $def_val:expr), $($code_name:ident = $val:expr),+,) => {
@@ -19,12 +19,12 @@ macro_rules! maple_enum_code {
             $($code_name = $val,)*
         }
 
-        $crate::mark_maple_enum!($name);
+        $crate::mark_shroom_enum!($name);
     };
 }
 
 #[macro_export]
-macro_rules! mark_maple_enum {
+macro_rules! mark_shroom_enum {
     ($enum_ty:ty) => {
         impl $crate::packet::PacketTryWrapped for $enum_ty {
             type Inner = <$enum_ty as num_enum::TryFromPrimitive>::Primitive;
@@ -42,7 +42,7 @@ macro_rules! mark_maple_enum {
 
 //TODO support docs
 #[macro_export]
-macro_rules! maple_packet_enum {
+macro_rules! shroom_packet_enum {
     ($name:ident, $ix_ty:ty, $($variant_name:ident($variant_ty:ty) => $variant_ix:expr),* $(,)?) => {
         #[derive(Debug)]
         pub enum $name {
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn name() {
-        maple_packet_enum!(
+        shroom_packet_enum!(
             TestChoice,
             u16,
             One(()) => 0,
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn code() {
-        maple_enum_code!(
+        shroom_enum_code!(
             Code,
             u8,
             A = 1,

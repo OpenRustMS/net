@@ -11,7 +11,7 @@ use cipher::{
 
 use crate::{NetError, NetResult};
 
-use super::{key::MAPLE_AES_KEY, RoundKey, AES_BLOCK_LEN};
+use super::{key::DEFAULT_AES_KEY, RoundKey, AES_BLOCK_LEN};
 
 const BLOCK_LEN: usize = 1460;
 const FIRST_BLOCK_LEN: usize = BLOCK_LEN - 4;
@@ -23,7 +23,7 @@ pub struct ShroomAESCipher {
 
 impl Default for ShroomAESCipher {
     fn default() -> Self {
-        Self::new(&MAPLE_AES_KEY).unwrap()
+        Self::new(DEFAULT_AES_KEY.as_slice()).unwrap()
     }
 }
 

@@ -110,7 +110,7 @@ mod tests {
     use std::io;
 
     use crate::{
-        net::{service::{BasicHandshakeGenerator, HandshakeGenerator}, ShroomSession},
+        net::{service::{BasicHandshakeGenerator, HandshakeGenerator}, ShroomSession, crypto::ShroomCryptoKeys},
         opcode::WithOpcode,
         PacketReader, PacketWriter,
     };
@@ -142,7 +142,8 @@ mod tests {
     fn get_fake_session() -> ShroomSession<std::io::Cursor<Vec<u8>>> {
         let io = std::io::Cursor::new(vec![]);
         let hshake = BasicHandshakeGenerator::v83().generate_handshake();
-        ShroomSession::from_client_handshake(io, hshake)
+        let keys = ShroomCryptoKeys::default();
+        ShroomSession::from_client_handshake(io, &keys, hshake)
     }
 
     #[tokio::test]

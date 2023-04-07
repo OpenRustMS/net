@@ -4,13 +4,16 @@ use futures::{Stream, StreamExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_util::sync::CancellationToken;
 
-
-use crate::{net::{ShroomSession, service::handler::SessionHandleResult, codec::handshake::Handshake}, NetError};
+use crate::{
+    net::{codec::handshake::Handshake, service::handler::SessionHandleResult, ShroomSession, crypto::ShroomCryptoKeys},
+    NetError,
+};
 
 use super::{
     framed_pipe::{framed_pipe, FramedPipeReceiver, FramedPipeSender},
     handler::{MakeServerSessionHandler, ShroomServerSessionHandler, ShroomSessionHandler},
-    HandshakeGenerator, packet_buffer::PacketBuffer,
+    packet_buffer::PacketBuffer,
+    HandshakeGenerator,
 };
 
 #[derive(Debug, Clone)]
@@ -133,6 +136,7 @@ where
 
     pub fn spawn_server_session<M>(
         io: M::Transport,
+        keys: ShroomCryptoKeys,
         mut mk: M,
         handshake: Handshake,
     ) -> Result<Self, M::Error>
@@ -146,12 +150,11 @@ where
     {
         let handle = tokio::spawn(async move {
             let res = async move {
-                let mut session = ShroomSession::initialize_server_session(io, handshake).await?;
+                let mut session =
+                    ShroomSession::initialize_server_session(io, &keys, handshake).await?;
 
                 let (sess_handle, sess_rx) = SharedSessionHandle::new();
-                let handler = mk
-                    .make_handler(&mut session, sess_handle.clone())
-                    .await?;
+                let handler = mk.make_handler(&mut session, sess_handle.clone()).await?;
 
                 let res = Self::exec_server_session(session, handler, sess_handle, sess_rx).await;
                 if let Err(ref err) = res {
@@ -183,6 +186,7 @@ where
 {
     handshake_gen: H,
     make_handler: MH,
+    keys: ShroomCryptoKeys,
     handles: Vec<ShroomSessionHandle<MH::Handler>>,
 }
 
@@ -192,8 +196,9 @@ where
     MH: MakeServerSessionHandler,
     MH::Handler: Send,
 {
-    pub fn new(handshake_gen: H, make_handler: MH) -> Self {
+    pub fn new(keys: ShroomCryptoKeys, handshake_gen: H, make_handler: MH) -> Self {
         Self {
+            keys,
             handshake_gen,
             make_handler,
             handles: Vec::new(),
@@ -213,7 +218,7 @@ where
     {
         let handshake = self.handshake_gen.generate_handshake();
         let handle =
-            ShroomSessionHandle::spawn_server_session(io, self.make_handler.clone(), handshake)?;
+            ShroomSessionHandle::spawn_server_session(io, self.keys.clone(), self.make_handler.clone(), handshake)?;
         // TODO: there should be an upper limit for active connections
         // cleaning closed connection should operate on Vec<Option<Handle>> probably
         // so a new conneciton just has to find a gap
@@ -250,10 +255,7 @@ where
     MH: MakeServerSessionHandler<Transport = TcpStream> + Send + Clone + 'static,
     MH::Error: From<io::Error> + Send + 'static,
 {
-    pub async fn serve_tcp(
-        &mut self,
-        addr: impl ToSocketAddrs,
-    ) -> Result<(), MH::Error> {
+    pub async fn serve_tcp(&mut self, addr: impl ToSocketAddrs) -> Result<(), MH::Error> {
         let listener = TcpListener::bind(addr).await?;
 
         loop {

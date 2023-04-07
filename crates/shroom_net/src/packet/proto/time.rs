@@ -12,9 +12,9 @@ const ZERO_TIME: i64 = 94354848000000000;
 const PERMANENT_TIME: i64 = 150841440000000000;
 
 #[derive(PartialEq, Eq, Copy, Clone)]
-pub struct MapleTime(pub i64);
+pub struct ShroomTime(pub i64);
 
-impl Debug for MapleTime {
+impl Debug for ShroomTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             DEFAULT_TIME => "DEFAULT_TIME".fmt(f),
@@ -25,7 +25,7 @@ impl Debug for MapleTime {
     }
 }
 
-impl TryFrom<i64> for MapleTime {
+impl TryFrom<i64> for ShroomTime {
     type Error = NetError;
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
@@ -34,7 +34,7 @@ impl TryFrom<i64> for MapleTime {
     }
 }
 
-impl TryFrom<[u8; 8]> for MapleTime {
+impl TryFrom<[u8; 8]> for ShroomTime {
     type Error = NetError;
 
     fn try_from(value: [u8; 8]) -> Result<Self, Self::Error> {
@@ -42,28 +42,28 @@ impl TryFrom<[u8; 8]> for MapleTime {
     }
 }
 
-impl From<NaiveDateTime> for MapleTime {
+impl From<NaiveDateTime> for ShroomTime {
     fn from(dt: NaiveDateTime) -> Self {
         Self(dt.timestamp_millis() * 10_000 + FT_UT_OFFSET)
     }
 }
 
-impl From<MapleTime> for NaiveDateTime {
-    fn from(s: MapleTime) -> Self {
+impl From<ShroomTime> for NaiveDateTime {
+    fn from(s: ShroomTime) -> Self {
         s.as_date_time()
     }
 }
 
-impl MapleTime {
+impl ShroomTime {
     pub fn utc_now() -> Self {
         Self::from(chrono::Utc::now().naive_utc())
     }
 
-    pub fn maple_default() -> Self {
+    pub fn shroom_default() -> Self {
         Self(DEFAULT_TIME)
     }
 
-    pub fn is_maple_default(&self) -> bool {
+    pub fn is_shroom_default(&self) -> bool {
         self.0 == DEFAULT_TIME
     }
 
@@ -89,7 +89,7 @@ impl MapleTime {
     }
 }
 
-impl PacketTryWrapped for MapleTime {
+impl PacketTryWrapped for ShroomTime {
     type Inner = i64;
 
     fn packet_into_inner(&self) -> Self::Inner {
@@ -117,23 +117,23 @@ impl PacketWrapped for Ticks {
 }
 
 #[derive(Debug)]
-pub struct MapleExpiration(pub Option<MapleTime>);
+pub struct ShroomExpiration(pub Option<ShroomTime>);
 
-impl From<Option<NaiveDateTime>> for MapleExpiration {
+impl From<Option<NaiveDateTime>> for ShroomExpiration {
     fn from(value: Option<NaiveDateTime>) -> Self {
-        let v: Option<MapleTime> = value.map(|v| v.into());
+        let v: Option<ShroomTime> = value.map(|v| v.into());
         v.into()
     }
 }
 
-impl From<Option<MapleTime>> for MapleExpiration {
-    fn from(value: Option<MapleTime>) -> Self {
+impl From<Option<ShroomTime>> for ShroomExpiration {
+    fn from(value: Option<ShroomTime>) -> Self {
         Self(value)
     }
 }
 
-impl MapleExpiration {
-    pub fn new(time: MapleTime) -> Self {
+impl ShroomExpiration {
+    pub fn new(time: ShroomTime) -> Self {
         Self(Some(time))
     }
 
@@ -146,11 +146,11 @@ impl MapleExpiration {
     }
 }
 
-impl PacketWrapped for MapleExpiration {
-    type Inner = MapleTime;
+impl PacketWrapped for ShroomExpiration {
+    type Inner = ShroomTime;
 
     fn packet_into_inner(&self) -> Self::Inner {
-        self.0.unwrap_or(MapleTime(0))
+        self.0.unwrap_or(ShroomTime(0))
     }
 
     fn packet_from(v: Self::Inner) -> Self {
@@ -201,8 +201,8 @@ where
     }
 }
 
-pub type MapleDurationMs16 = DurationMs<u16>;
-pub type MapleDurationMs32 = DurationMs<u32>;
+pub type ShroomDurationMs16 = DurationMs<u16>;
+pub type ShroomDurationMs32 = DurationMs<u32>;
 
 #[cfg(test)]
 mod tests {
@@ -210,11 +210,11 @@ mod tests {
 
     use crate::packet::PacketWrapped;
 
-    use super::{MapleDurationMs32, MapleTime};
+    use super::{ShroomDurationMs32, ShroomTime};
 
     #[test]
     fn conv() {
-        let _def = MapleTime::maple_default();
+        let _def = ShroomTime::shroom_default();
     }
 
     #[test]
@@ -222,7 +222,7 @@ mod tests {
         const MS: u32 = 100;
         let dur = Duration::from_millis(MS as u64);
 
-        let m_dur: MapleDurationMs32 = dur.into();
+        let m_dur: ShroomDurationMs32 = dur.into();
         assert_eq!(m_dur.packet_into_inner(), MS);
         assert_eq!(dur, m_dur.into());
     }
