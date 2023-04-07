@@ -1,7 +1,5 @@
 pub mod framed_pipe;
 
-
-
 /// Helper type to calculate size hint
 pub struct SizeHint(pub Option<usize>);
 

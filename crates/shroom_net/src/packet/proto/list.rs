@@ -3,7 +3,7 @@ use std::{fmt::Debug, slice};
 
 use bytes::BufMut;
 
-use crate::{PacketReader, NetResult, PacketWriter};
+use crate::{NetResult, PacketReader, PacketWriter};
 
 use super::{DecodePacket, DecodePacketOwned, EncodePacket};
 

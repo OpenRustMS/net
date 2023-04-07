@@ -6,8 +6,6 @@ use crate::{error::NetError, opcode::NetOpcode, NetResult};
 
 use super::shroom128_from_bytes;
 
-
-
 #[derive(Debug)]
 pub struct PacketReader<'a> {
     inner: Cursor<&'a [u8]>,

@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     codec::{handshake::Handshake, packet_codec::PacketCodec},
-    crypto::ShroomCryptoKeys,
+    crypto::SharedCryptoContext,
     service::packet_buffer::PacketBuffer,
 };
 
@@ -41,30 +41,30 @@ where
     /// Initialize a server session, by sending out the given handshake
     pub async fn initialize_server_session(
         mut io: T,
-        keys: &ShroomCryptoKeys,
+        ctx: SharedCryptoContext,
         handshake: Handshake,
     ) -> NetResult<Self> {
         handshake.write_handshake_async(&mut io).await?;
-        Ok(Self::from_server_handshake(io, keys, handshake))
+        Ok(Self::from_server_handshake(io, ctx, handshake))
     }
 
     pub async fn initialize_client_session(
         mut io: T,
-        keys: &ShroomCryptoKeys,
+        ctx: SharedCryptoContext,
     ) -> NetResult<(Self, Handshake)> {
         let handshake = Handshake::read_handshake_async(&mut io).await?;
-        let sess = Self::from_client_handshake(io, keys, handshake.clone());
+        let sess = Self::from_client_handshake(io, ctx, handshake.clone());
 
         Ok((sess, handshake))
     }
 
-    pub fn from_server_handshake(io: T, keys: &ShroomCryptoKeys, handshake: Handshake) -> Self {
-        let codec = PacketCodec::from_server_handshake(keys, handshake);
+    pub fn from_server_handshake(io: T, ctx: SharedCryptoContext, handshake: Handshake) -> Self {
+        let codec = PacketCodec::from_server_handshake(ctx, handshake);
         Self::new(io, codec)
     }
 
-    pub fn from_client_handshake(io: T, keys: &ShroomCryptoKeys, handshake: Handshake) -> Self {
-        let codec = PacketCodec::from_client_handshake(keys, handshake);
+    pub fn from_client_handshake(io: T, ctx: SharedCryptoContext, handshake: Handshake) -> Self {
+        let codec = PacketCodec::from_client_handshake(ctx, handshake);
         Self::new(io, codec)
     }
 
@@ -129,10 +129,10 @@ impl ShroomSession<TcpStream> {
 
     pub async fn connect(
         addr: SocketAddr,
-        keys: &ShroomCryptoKeys,
+        ctx: SharedCryptoContext,
     ) -> NetResult<(Self, Handshake)> {
         let socket = TcpStream::connect(addr).await?;
-        Self::initialize_client_session(socket, keys).await
+        Self::initialize_client_session(socket, ctx).await
     }
 }
 
@@ -145,7 +145,7 @@ mod tests {
 
     use crate::net::{
         codec::handshake::Handshake,
-        crypto::{RoundKey, ShroomCryptoKeys},
+        crypto::{RoundKey, SharedCryptoContext},
         ShroomSession,
     };
 
@@ -160,8 +160,6 @@ mod tests {
         let mut sim = turmoil::Builder::new().build();
         const ECHO_DATA: [&'static [u8]; 4] = [&[0xFF; 4096], &[1, 2], &[], &[0x0; 1024]];
         const V: u16 = 83;
-
-        const DEFAULT_KEYS: ShroomCryptoKeys = ShroomCryptoKeys::with_default_keys();
 
         sim.host("server", || async move {
             let handshake = Handshake {
@@ -178,7 +176,7 @@ mod tests {
                 let socket = listener.accept().await?.0;
                 let mut sess = ShroomSession::initialize_server_session(
                     socket,
-                    &DEFAULT_KEYS,
+                    SharedCryptoContext::default(),
                     handshake.clone(),
                 )
                 .await?;
@@ -200,7 +198,8 @@ mod tests {
         sim.client("client", async move {
             let socket = TcpStream::connect(("server", PORT)).await?;
             let (mut sess, handshake) =
-                ShroomSession::initialize_client_session(socket, &DEFAULT_KEYS).await?;
+                ShroomSession::initialize_client_session(socket, SharedCryptoContext::default())
+                    .await?;
             assert_eq!(handshake.version, V);
 
             for data in ECHO_DATA.iter() {

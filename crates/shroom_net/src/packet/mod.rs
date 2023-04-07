@@ -12,7 +12,6 @@ pub use writer::PacketWriter;
 // Re-export proto
 pub use proto::*;
 
-
 /// Decode a `u128` from the given byte array
 pub(crate) fn shroom128_from_bytes(data: [u8; 16]) -> u128 {
     let mut data: [u32; 4] = bytemuck::cast(data);
@@ -21,7 +20,7 @@ pub(crate) fn shroom128_from_bytes(data: [u8; 16]) -> u128 {
 }
 
 /// Encode a `u128` into a byte array
-pub(crate) fn shroom128_to_bytes(v: u128) -> [u8; 16] { 
+pub(crate) fn shroom128_to_bytes(v: u128) -> [u8; 16] {
     let mut blocks: [u32; 4] = bytemuck::cast(v.to_le_bytes());
     blocks.reverse();
     bytemuck::cast(blocks)

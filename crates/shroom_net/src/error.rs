@@ -1,4 +1,4 @@
-use std::{io, str::Utf8Error, fmt::Display};
+use std::{fmt::Display, io, str::Utf8Error};
 
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
@@ -8,7 +8,7 @@ use crate::packet::analyzer::PacketDataAnalytics;
 #[derive(Debug)]
 pub struct EOFErrorData {
     pub analytics: PacketDataAnalytics,
-    pub type_name: &'static str
+    pub type_name: &'static str,
 }
 
 impl Display for EOFErrorData {
@@ -16,7 +16,6 @@ impl Display for EOFErrorData {
         write!(f, "eof packet(type={}): {}", self.type_name, self.analytics)
     }
 }
-
 
 #[derive(Debug, Error)]
 pub enum NetError {
@@ -55,7 +54,7 @@ pub enum NetError {
     #[error("Out of capacity")]
     OutOfCapacity,
     #[error("Ping timeout")]
-    PingTimeout
+    PingTimeout,
 }
 
 impl NetError {
@@ -63,12 +62,7 @@ impl NetError {
         let type_name = std::any::type_name::<T>();
         let pos = data.len().saturating_sub(read_len);
         Self::EOF(Box::new(EOFErrorData {
-            analytics: PacketDataAnalytics::from_data(
-                data,
-                pos,
-                read_len,
-                read_len * 5,
-            ),
+            analytics: PacketDataAnalytics::from_data(data, pos, read_len, read_len * 5),
             type_name,
         }))
     }

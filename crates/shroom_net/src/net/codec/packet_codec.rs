@@ -2,16 +2,13 @@ use bytes::{Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::{
-    net::crypto::{PacketHeader, ShroomCrypto, ShroomVersion, PACKET_HEADER_LEN, ShroomCryptoKeys},
+    net::crypto::{
+        PacketHeader, SharedCryptoContext, ShroomCrypto, ShroomVersion, PACKET_HEADER_LEN,
+    },
     NetError, NetResult, ShroomPacket,
 };
 
 use super::{handshake::Handshake, MAX_PACKET_LEN};
-
-// Struct for the encoder which ensures only this crate can actually use it
-// Because the encoding has to be done prior with the raw encode buffer
-// Check `ShroomSession::send_packet` for this
-pub struct EncodeItem(pub(crate) usize);
 
 pub struct PacketCodec {
     pub(crate) decode: PacketDecodeCodec,
@@ -19,19 +16,19 @@ pub struct PacketCodec {
 }
 
 impl PacketCodec {
-    pub fn from_client_handshake(keys: &ShroomCryptoKeys, handshake: Handshake) -> Self {
+    pub fn from_client_handshake(ctx: SharedCryptoContext, handshake: Handshake) -> Self {
         let v = ShroomVersion(handshake.version);
         Self {
-            decode: PacketDecodeCodec(ShroomCrypto::new(keys, handshake.iv_dec, v.invert())),
-            encode: PacketEncodeCodec(ShroomCrypto::new(keys, handshake.iv_enc, v))
+            decode: PacketDecodeCodec(ShroomCrypto::new(ctx.clone(), handshake.iv_dec, v.invert())),
+            encode: PacketEncodeCodec(ShroomCrypto::new(ctx, handshake.iv_enc, v)),
         }
     }
 
-    pub fn from_server_handshake(keys: &ShroomCryptoKeys, handshake: Handshake) -> Self {
+    pub fn from_server_handshake(ctx: SharedCryptoContext, handshake: Handshake) -> Self {
         let v = ShroomVersion(handshake.version);
         Self {
-            decode: PacketDecodeCodec(ShroomCrypto::new(keys, handshake.iv_enc, v)),
-            encode: PacketEncodeCodec(ShroomCrypto::new(keys, handshake.iv_dec, v.invert()))
+            decode: PacketDecodeCodec(ShroomCrypto::new(ctx.clone(), handshake.iv_enc, v)),
+            encode: PacketEncodeCodec(ShroomCrypto::new(ctx, handshake.iv_dec, v.invert())),
         }
     }
 }

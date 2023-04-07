@@ -1,6 +1,6 @@
+use indexmap::IndexMap;
 use std::hash::Hash;
 use std::sync::RwLock;
-use indexmap::IndexMap;
 
 use crate::{EncodePacket, HasOpcode, PacketWriter, ShroomPacket};
 

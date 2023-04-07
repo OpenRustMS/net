@@ -68,12 +68,11 @@ pub struct Packet5 {
     either: CondEither<String, bool>,
 }
 
-
 #[derive(ShroomPacket, Debug, PartialEq, Eq)]
 pub struct Packet6 {
     n: u32,
     #[pkt(size = "n")]
-    data: Vec<u8>
+    data: Vec<u8>,
 }
 
 fn test_encode_decode<'de, T>(data: T, buf: &'de mut BytesMut)

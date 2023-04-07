@@ -3,11 +3,11 @@ pub mod conditional;
 pub mod constant;
 pub mod geo;
 pub mod list;
-pub mod shroom_enum;
 pub mod option;
 pub mod padding;
 pub mod partial;
 pub mod primitive;
+pub mod shroom_enum;
 pub mod string;
 pub mod time;
 pub mod wrapped;
@@ -17,11 +17,12 @@ use bytes::BufMut;
 
 pub use conditional::{CondEither, CondOption, PacketConditional};
 pub use list::{
-    ShroomIndexList, ShroomList, ShroomList16, ShroomList32, ShroomList64, ShroomList8, ShroomListIndexZ,
+    ShroomIndexList, ShroomList, ShroomList16, ShroomList32, ShroomList64, ShroomList8,
+    ShroomListIndexZ,
 };
 pub use wrapped::{PacketTryWrapped, PacketWrapped};
 
-use crate::{ShroomPacket, PacketReader, PacketWriter, NetResult};
+use crate::{NetResult, PacketReader, PacketWriter, ShroomPacket};
 
 pub trait DecodePacket<'de>: Sized {
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self>;

@@ -1,13 +1,13 @@
 pub mod ig_cipher;
+use std::sync::Arc;
+
 use cipher::{generic_array::GenericArray, typenum::U16};
 use rand::{CryptoRng, Rng};
 
 use crate::NetResult;
 
 use self::{
-    aes_cipher::ShroomAESCipher,
-    ig_cipher::IgCipher,
-    key::{DEFAULT_AES_KEY, DEFAULT_SHUFFLE_KEY},
+    aes_cipher::ShroomAESCipher, ig_cipher::IgCipher, key::DEFAULT_AES_KEY,
     shanda_cipher::ShandaCipher,
 };
 
@@ -26,6 +26,8 @@ pub type ShuffleKey = [u8; 256];
 pub const PACKET_HEADER_LEN: usize = 4;
 pub type PacketHeader = [u8; PACKET_HEADER_LEN];
 
+pub type SharedIgCipher = Arc<IgCipher>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShroomVersion(pub u16);
 
@@ -40,7 +42,7 @@ pub struct RoundKey(pub [u8; ROUND_KEY_LEN]);
 
 impl Default for RoundKey {
     fn default() -> Self {
-        key::DEFAULT_INIT_IG_SEED
+        Self(*key::DEFAULT_INIT_IG_SEED)
     }
 }
 
@@ -85,8 +87,7 @@ impl RoundKey {
     }
 
     pub fn update(&self, ig: &IgCipher) -> RoundKey {
-        ig.inno_hash_n(&self.0, key::DEFAULT_INIT_IG_SEED.into())
-            .into()
+        ig.inno_hash_n(&self.0).into()
     }
 
     pub fn expand(&self) -> GenericArray<u8, U16> {
@@ -94,49 +95,42 @@ impl RoundKey {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ShroomCryptoKeys {
-    aes_key: AesKey,
-    ig_shuffle_key: ShuffleKey,
+#[derive(Debug)]
+pub struct CryptoContext {
+    pub aes_key: AesKey,
+    pub ig_cipher: IgCipher,
 }
 
-impl Default for ShroomCryptoKeys {
+impl Default for CryptoContext {
     fn default() -> Self {
         Self {
             aes_key: *DEFAULT_AES_KEY,
-            ig_shuffle_key: *DEFAULT_SHUFFLE_KEY,
+            ig_cipher: Default::default(),
         }
     }
 }
 
-impl ShroomCryptoKeys {
-    pub const fn with_default_keys() -> Self {
-        Self {
-            aes_key: *DEFAULT_AES_KEY,
-            ig_shuffle_key: *DEFAULT_SHUFFLE_KEY,
-        }
-    }
-}
+pub type SharedCryptoContext = Arc<CryptoContext>;
 
 pub struct ShroomCrypto {
     shroom_aes_cipher: ShroomAESCipher,
-    ig_cipher: IgCipher,
+    ctx: SharedCryptoContext,
     round_key: RoundKey,
     version: ShroomVersion,
 }
 
 impl ShroomCrypto {
-    pub fn new(keys: &ShroomCryptoKeys, round_key: RoundKey, version: ShroomVersion) -> Self {
+    pub fn new(ctx: SharedCryptoContext, round_key: RoundKey, version: ShroomVersion) -> Self {
         Self {
-            shroom_aes_cipher: ShroomAESCipher::new(&keys.aes_key).unwrap(),
+            shroom_aes_cipher: ShroomAESCipher::new(&ctx.aes_key).unwrap(),
             round_key,
-            ig_cipher: IgCipher::new(keys.ig_shuffle_key),
+            ctx,
             version,
         }
     }
 
     fn update_round_key(&mut self) {
-        self.round_key = self.round_key.update(&self.ig_cipher);
+        self.round_key = self.round_key.update(&self.ctx.ig_cipher);
     }
 
     /// Decodes and verifies a header from the given bytes
@@ -168,8 +162,7 @@ impl ShroomCrypto {
 
 #[cfg(test)]
 mod tests {
-
-    use crate::net::crypto::{RoundKey, ShroomCrypto, ShroomCryptoKeys};
+    use crate::net::crypto::{RoundKey, SharedCryptoContext, ShroomCrypto};
 
     use super::ShroomVersion;
     const V: ShroomVersion = ShroomVersion(95);
@@ -177,10 +170,9 @@ mod tests {
     #[test]
     fn en_dec() {
         let key = RoundKey([1, 2, 3, 4]);
-        let keys = ShroomCryptoKeys::default();
 
-        let mut enc = ShroomCrypto::new(&keys, key, V);
-        let mut dec = ShroomCrypto::new(&keys, key, V);
+        let mut enc = ShroomCrypto::new(SharedCryptoContext::default(), key, V);
+        let mut dec = ShroomCrypto::new(SharedCryptoContext::default(), key, V);
         let data = b"abcdef";
 
         let mut data_enc = *data;
@@ -194,10 +186,9 @@ mod tests {
     #[test]
     fn en_dec_100() {
         let key = RoundKey([1, 2, 3, 4]);
-        let keys = ShroomCryptoKeys::default();
 
-        let mut enc = ShroomCrypto::new(&keys, key, V);
-        let mut dec = ShroomCrypto::new(&keys, key, V);
+        let mut enc = ShroomCrypto::new(SharedCryptoContext::default(), key, V);
+        let mut dec = ShroomCrypto::new(SharedCryptoContext::default(), key, V);
         let data = b"abcdef".to_vec();
 
         for _ in 0..100 {

@@ -5,12 +5,13 @@ use futures::{future, Future};
 use tokio::sync::mpsc;
 
 use crate::{
-    net::{ShroomSession, SessionTransport},
+    net::{SessionTransport, ShroomSession},
     DecodePacket, NetError, PacketReader, ShroomPacket,
 };
 
 use super::{
-    resp::{IntoResponse, Response}, server_sess::SharedSessionHandle,
+    resp::{IntoResponse, Response},
+    server_sess::SharedSessionHandle,
 };
 
 pub type BroadcastSender = mpsc::Sender<ShroomPacket>;
@@ -74,7 +75,6 @@ pub trait MakeServerSessionHandler {
 // in the session to avoid having 2 mut references, however It'd be quiet a challenge to call self methods
 // on the state, cause you'd still like to have a session to send packets
 
-
 /// Call a the specified handler function `f` and process the returned response
 pub async fn call_handler_fn<'session, F, Req, Fut, Trans, State, Resp, Err>(
     state: &'session mut State,
@@ -115,7 +115,11 @@ mod tests {
     use std::io;
 
     use crate::{
-        net::{service::{BasicHandshakeGenerator, HandshakeGenerator}, ShroomSession, crypto::ShroomCryptoKeys},
+        net::{
+            crypto::SharedCryptoContext,
+            service::{BasicHandshakeGenerator, HandshakeGenerator},
+            ShroomSession,
+        },
         opcode::WithOpcode,
         PacketReader, PacketWriter,
     };
@@ -147,8 +151,7 @@ mod tests {
     fn get_fake_session() -> ShroomSession<std::io::Cursor<Vec<u8>>> {
         let io = std::io::Cursor::new(vec![]);
         let hshake = BasicHandshakeGenerator::v83().generate_handshake();
-        let keys = ShroomCryptoKeys::default();
-        ShroomSession::from_client_handshake(io, &keys, hshake)
+        ShroomSession::from_client_handshake(io, SharedCryptoContext::default(), hshake)
     }
 
     #[tokio::test]

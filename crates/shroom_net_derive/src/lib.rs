@@ -77,7 +77,6 @@ impl PacketField {
         }
     }
 
-
     // Get the size_hint expr for this field
     pub fn size_hint_expr(&self) -> TokenStream {
         let ty = &self.ty;
@@ -96,7 +95,7 @@ impl PacketField {
         if let Some(cond) = self.get_cond() {
             let cond = cond.id_expr();
             quote::quote!( let #var_ident  = <#ty as shroom_net::packet::PacketConditional>::decode_packet_cond(#cond, pr) )
-            
+
             // Call the sized decoder with the given sized expression
         } else if let Some(sz) = self.size.as_ref() {
             quote::quote!( let #var_ident = shroom_net::packet::DecodePacketSized::decode_packet_sized(pr, #sz as usize) )
@@ -104,8 +103,6 @@ impl PacketField {
             quote::quote!( let #var_ident = <#ty>::decode_packet(pr) )
         }
     }
-
-
 }
 
 /// Represent a packet with all fields

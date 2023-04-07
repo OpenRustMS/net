@@ -1,4 +1,4 @@
-use crate::{DecodePacket, EncodePacket, PacketReader, PacketWriter, NetResult};
+use crate::{DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter};
 
 pub trait PartialData<'de>: Sized {
     type Flags;
@@ -8,8 +8,7 @@ pub trait PartialData<'de>: Sized {
         flag: Self::Flags,
         pw: &mut PacketWriter<Buf>,
     ) -> NetResult<()>;
-    fn partial_decode_packet(flag: Self::Flags, pr: &mut PacketReader<'de>)
-        -> NetResult<Self>;
+    fn partial_decode_packet(flag: Self::Flags, pr: &mut PacketReader<'de>) -> NetResult<Self>;
     fn partial_packet_len(&self, flag: Self::Flags) -> usize;
 }
 

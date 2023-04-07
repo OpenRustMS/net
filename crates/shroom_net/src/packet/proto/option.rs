@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{PacketReader, PacketWriter, NetResult};
+use crate::{NetResult, PacketReader, PacketWriter};
 
 use super::{wrapped::PacketWrapped, DecodePacket, DecodePacketOwned, EncodePacket};
 
@@ -129,7 +129,6 @@ pub type ShroomOption8<T> = ShroomOption<T, u8>;
 pub type ShroomOptionR8<T> = ShroomOption<T, RevShroomOptionIndex<u8>>;
 pub type ShroomOptionBool<T> = ShroomOption<T, bool>;
 pub type ShroomOptionRBool<T> = ShroomOption<T, RevShroomOptionIndex<bool>>;
-
 
 #[cfg(test)]
 mod tests {

@@ -1,8 +1,8 @@
 use bytes::{BufMut, BytesMut};
 
-use crate::{ShroomPacket, NetResult, NetError, opcode::NetOpcode};
+use crate::{opcode::NetOpcode, NetError, NetResult, ShroomPacket};
 
-use super::{shroom128_to_bytes, packet_str_len};
+use super::{packet_str_len, shroom128_to_bytes};
 
 #[derive(Debug)]
 pub struct PacketWriter<T = BytesMut> {
@@ -50,10 +50,9 @@ where
     }
 
     #[inline]
-    pub fn check_capacity(&self, cap: usize) ->  NetResult<()> {
+    pub fn check_capacity(&self, cap: usize) -> NetResult<()> {
         if self.buf.remaining_mut() < cap {
             Err(NetError::OutOfCapacity)
-            
         } else {
             Ok(())
         }
@@ -63,19 +62,19 @@ where
         self.write_u16(op.into())
     }
 
-    pub fn write_u8(&mut self, v: u8)  -> NetResult<()> {
+    pub fn write_u8(&mut self, v: u8) -> NetResult<()> {
         self.check_capacity(1)?;
         self.buf.put_u8(v);
         Ok(())
     }
 
-    pub fn write_i8(&mut self, v: i8)  -> NetResult<()> {
+    pub fn write_i8(&mut self, v: i8) -> NetResult<()> {
         self.check_capacity(1)?;
         self.buf.put_i8(v);
         Ok(())
     }
 
-    pub fn write_bool(&mut self, v: bool)  -> NetResult<()>{
+    pub fn write_bool(&mut self, v: bool) -> NetResult<()> {
         self.check_capacity(1)?;
         self.write_u8(v.into())
     }
@@ -109,7 +108,7 @@ where
         Ok(())
     }
 
-    pub fn write_f64(&mut self, v: f64)  -> NetResult<()>{
+    pub fn write_f64(&mut self, v: f64) -> NetResult<()> {
         self.check_capacity(8)?;
         self.buf.put_f64_le(v);
         Ok(())
@@ -133,11 +132,11 @@ where
         Ok(())
     }
 
-    pub fn write_u128(&mut self, v: u128)  -> NetResult<()>{
+    pub fn write_u128(&mut self, v: u128) -> NetResult<()> {
         self.write_array(&shroom128_to_bytes(v))
     }
 
-    pub fn write_bytes(&mut self, v: &[u8])  -> NetResult<()> {
+    pub fn write_bytes(&mut self, v: &[u8]) -> NetResult<()> {
         self.check_capacity(v.len())?;
         self.buf.put(v);
         Ok(())
@@ -149,7 +148,7 @@ where
         Ok(())
     }
 
-    pub fn write_str(&mut self, v: &str)  -> NetResult<()>{
+    pub fn write_str(&mut self, v: &str) -> NetResult<()> {
         self.check_capacity(packet_str_len(v))?;
         let b = v.as_bytes();
         self.buf.put_u16_le(b.len() as u16);

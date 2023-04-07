@@ -3,7 +3,7 @@ use std::iter;
 use bytes::BytesMut;
 use itertools::Itertools;
 
-use crate::{PacketWriter, EncodePacket, HasOpcode, NetResult};
+use crate::{EncodePacket, HasOpcode, NetResult, PacketWriter};
 
 /// Buffer to allow to encode multiple packets onto one buffer
 /// while still allowing to iterate over the encoded packets

@@ -3,7 +3,9 @@ use std::str::Utf8Error;
 use arrayvec::{ArrayString, CapacityError};
 use bytes::BufMut;
 
-use crate::{DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter, packet::packet_str_len};
+use crate::{
+    packet::packet_str_len, DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter,
+};
 
 use super::PacketTryWrapped;
 

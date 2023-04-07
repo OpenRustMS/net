@@ -22,8 +22,8 @@ pub enum FramedPipeError {
 /// A `Pipe` which works on frames
 #[derive(Debug, Clone)]
 struct FramedPipeBuf {
-    buf: BytesMut, 
-    cap: usize
+    buf: BytesMut,
+    cap: usize,
 }
 
 impl FramedPipeBuf {
@@ -31,7 +31,7 @@ impl FramedPipeBuf {
     fn new(cap: usize) -> Self {
         Self {
             buf: BytesMut::with_capacity(cap),
-            cap
+            cap,
         }
     }
 
@@ -54,7 +54,7 @@ impl FramedPipeBuf {
             // If buffer is reallocated the space is usually doubled
             // so this check should be sufficient for the current use-case
             if self.buf.capacity() + self.buf.len() > self.cap {
-                return Err(FramedPipeError::OutOfCapacity)
+                return Err(FramedPipeError::OutOfCapacity);
             }
         }
 

@@ -122,13 +122,7 @@ mod tests {
 
     #[test]
     fn code() {
-        shroom_enum_code!(
-            Code,
-            u8,
-            A = 1,
-            B = 2,
-            C = 3
-        );
+        shroom_enum_code!(Code, u8, A = 1, B = 2, C = 3);
 
         assert_eq!(Code::A, Code::A);
         let a: u8 = Code::A.into();

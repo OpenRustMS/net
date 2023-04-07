@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     net::{
-        codec::handshake::Handshake, crypto::ShroomCryptoKeys,
+        codec::handshake::Handshake, crypto::SharedCryptoContext,
         service::handler::SessionHandleResult, ShroomSession,
     },
     util::framed_pipe::{framed_pipe, FramedPipeReceiver, FramedPipeSender},
@@ -185,8 +185,7 @@ where
 
 #[derive(Debug)]
 pub struct ShroomServerConfig {
-    /// Crypto keys
-    pub keys: ShroomCryptoKeys,
+    pub crypto_ctx: SharedCryptoContext,
     /// Duration for how long the transport is kept alive after receiving a Migration Response
     pub migrate_delay: Duration,
 }
@@ -247,7 +246,8 @@ where
         let handle = tokio::spawn(async move {
             let res = async move {
                 let mut session =
-                    ShroomSession::initialize_server_session(io, &cfg.keys, handshake).await?;
+                    ShroomSession::initialize_server_session(io, cfg.crypto_ctx.clone(), handshake)
+                        .await?;
 
                 let (session_handle, session_rx) = SharedSessionHandle::new();
                 let handler = mk
@@ -263,7 +263,7 @@ where
                 )
                 .exec()
                 .await;
-            
+
                 if let Err(ref err) = res {
                     log::info!("Session exited with error: {:?}", err);
                 }

@@ -3,16 +3,12 @@ use std::ops::{Deref, DerefMut};
 use bytes::BufMut;
 use either::Either;
 
-use crate::{PacketReader, PacketWriter, NetResult};
+use crate::{NetResult, PacketReader, PacketWriter};
 
 use super::{DecodePacket, EncodePacket};
 
 pub trait PacketConditional<'de>: Sized {
-    fn encode_packet_cond<B: BufMut>(
-        &self,
-        cond: bool,
-        pw: &mut PacketWriter<B>,
-    ) -> NetResult<()>;
+    fn encode_packet_cond<B: BufMut>(&self, cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()>;
     fn decode_packet_cond(cond: bool, pr: &mut PacketReader<'de>) -> NetResult<Self>;
     fn packet_len_cond(&self, cond: bool) -> usize;
 }
@@ -57,11 +53,7 @@ impl<'de, T> PacketConditional<'de> for CondOption<T>
 where
     T: EncodePacket + DecodePacket<'de>,
 {
-    fn encode_packet_cond<B: BufMut>(
-        &self,
-        cond: bool,
-        pw: &mut PacketWriter<B>,
-    ) -> NetResult<()> {
+    fn encode_packet_cond<B: BufMut>(&self, cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()> {
         if cond {
             self.as_ref().expect("Must have value").encode_packet(pw)?;
         }
@@ -109,11 +101,7 @@ where
     L: EncodePacket + DecodePacket<'de>,
     R: EncodePacket + DecodePacket<'de>,
 {
-    fn encode_packet_cond<B: BufMut>(
-        &self,
-        cond: bool,
-        pw: &mut PacketWriter<B>,
-    ) -> NetResult<()> {
+    fn encode_packet_cond<B: BufMut>(&self, cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()> {
         if cond {
             self.0
                 .as_ref()

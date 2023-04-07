@@ -2,7 +2,7 @@ use array_init::try_array_init;
 use bytes::BufMut;
 use either::Either;
 
-use crate::{PacketReader, PacketWriter, NetResult};
+use crate::{NetResult, PacketReader, PacketWriter};
 
 use super::{DecodePacket, EncodePacket};
 
@@ -89,10 +89,7 @@ macro_rules! impl_dec {
 macro_rules! impl_enc {
     ($ty:ty, $enc:path) => {
         impl EncodePacket for $ty {
-            fn encode_packet<B: bytes::BufMut>(
-                &self,
-                pw: &mut PacketWriter<B>,
-            ) -> NetResult<()> {
+            fn encode_packet<B: bytes::BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
                 $enc(pw, *self)
             }
 
@@ -105,7 +102,7 @@ macro_rules! impl_enc {
     };
 }
 
-/* 
+/*
 macro_rules! impl_tracing {
     ($ty:ty) => {
         impl crate::proto::tracing::HasTraceInformation for $ty {
@@ -133,63 +130,19 @@ macro_rules! impl_dec_enc {
     };
 }
 
-impl_dec_enc!(
-    bool,
-    PacketReader::read_bool,
-    PacketWriter::write_bool
-);
+impl_dec_enc!(bool, PacketReader::read_bool, PacketWriter::write_bool);
 impl_dec_enc!(u8, PacketReader::read_u8, PacketWriter::write_u8);
 impl_dec_enc!(i8, PacketReader::read_i8, PacketWriter::write_i8);
-impl_dec_enc!(
-    u16,
-    PacketReader::read_u16,
-    PacketWriter::write_u16
-);
-impl_dec_enc!(
-    u32,
-    PacketReader::read_u32,
-    PacketWriter::write_u32
-);
-impl_dec_enc!(
-    u64,
-    PacketReader::read_u64,
-    PacketWriter::write_u64
-);
-impl_dec_enc!(
-    u128,
-    PacketReader::read_u128,
-    PacketWriter::write_u128
-);
-impl_dec_enc!(
-    i16,
-    PacketReader::read_i16,
-    PacketWriter::write_i16
-);
-impl_dec_enc!(
-    i32,
-    PacketReader::read_i32,
-    PacketWriter::write_i32
-);
-impl_dec_enc!(
-    i64,
-    PacketReader::read_i64,
-    PacketWriter::write_i64
-);
-impl_dec_enc!(
-    i128,
-    PacketReader::read_i128,
-    PacketWriter::write_i128
-);
-impl_dec_enc!(
-    f32,
-    PacketReader::read_f32,
-    PacketWriter::write_f32
-);
-impl_dec_enc!(
-    f64,
-    PacketReader::read_f64,
-    PacketWriter::write_f64
-);
+impl_dec_enc!(u16, PacketReader::read_u16, PacketWriter::write_u16);
+impl_dec_enc!(u32, PacketReader::read_u32, PacketWriter::write_u32);
+impl_dec_enc!(u64, PacketReader::read_u64, PacketWriter::write_u64);
+impl_dec_enc!(u128, PacketReader::read_u128, PacketWriter::write_u128);
+impl_dec_enc!(i16, PacketReader::read_i16, PacketWriter::write_i16);
+impl_dec_enc!(i32, PacketReader::read_i32, PacketWriter::write_i32);
+impl_dec_enc!(i64, PacketReader::read_i64, PacketWriter::write_i64);
+impl_dec_enc!(i128, PacketReader::read_i128, PacketWriter::write_i128);
+impl_dec_enc!(f32, PacketReader::read_f32, PacketWriter::write_f32);
+impl_dec_enc!(f64, PacketReader::read_f64, PacketWriter::write_f64);
 
 impl<'de, const N: usize, T: DecodePacket<'de>> DecodePacket<'de> for [T; N] {
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
@@ -251,7 +204,6 @@ impl<D: EncodePacket> EncodePacket for Option<D> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::packet::proto::tests::enc_dec_test_all;
@@ -270,6 +222,6 @@ mod tests {
             };
         }
 
-        test_num!(u8,i8,u16,i16,u32,i32,u64,i64,u128,i128,f32,f64,);
+        test_num!(u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, f32, f64,);
     }
 }

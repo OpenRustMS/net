@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 
-use crate::{net::{SessionTransport, ShroomSession}, NetResult, NetOpcode, EncodePacket, HasOpcode};
+use crate::{
+    net::{SessionTransport, ShroomSession},
+    EncodePacket, HasOpcode, NetOpcode, NetResult,
+};
 
 use super::handler::SessionHandleResult;
 
@@ -117,8 +120,7 @@ where
 pub struct PongResponse;
 
 #[async_trait]
-impl Response for PongResponse
-{
+impl Response for PongResponse {
     async fn send<Trans: SessionTransport + Send + Unpin>(
         self,
         _session: &mut ShroomSession<Trans>,

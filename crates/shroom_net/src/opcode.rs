@@ -32,10 +32,7 @@ where
         self.0.packet_len()
     }
 
-    fn encode_packet<B: bytes::BufMut>(
-        &self,
-        pw: &mut crate::PacketWriter<B>,
-    ) -> NetResult<()> {
+    fn encode_packet<B: bytes::BufMut>(&self, pw: &mut crate::PacketWriter<B>) -> NetResult<()> {
         self.0.encode_packet(pw)
     }
 }

@@ -57,7 +57,7 @@ impl ShandaCipher {
         let mut state = 0;
         let mut ln = n as u8;
 
-        for d in data.iter_mut()  {
+        for d in data.iter_mut() {
             let (b, next_state) = apply(*d, state, ln);
             *d = b;
             state = next_state;
@@ -75,7 +75,7 @@ impl ShandaCipher {
         let mut ln = Wrapping(n as u8);
 
         // REV
-        for d in data.iter_mut().rev()  {
+        for d in data.iter_mut().rev() {
             let (b, next_state) = apply(*d, state, ln.0);
             *d = b;
             state = next_state;
@@ -119,7 +119,6 @@ mod tests {
     #[ignore]
     #[test]
     fn odd_even_enc_dec() {
-
         for b in 0u8..=u8::MAX {
             for state in 0u8..=u8::MAX {
                 for ln in 0u8..=8 {

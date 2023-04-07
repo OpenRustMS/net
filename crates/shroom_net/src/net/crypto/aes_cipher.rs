@@ -79,7 +79,6 @@ mod tests {
 
     use super::ShroomAESCipher;
 
-
     fn enc_dec(cipher: &ShroomAESCipher, key: RoundKey, data: &mut [u8]) {
         cipher.crypt(key, data.into());
         cipher.crypt(key, data.into());

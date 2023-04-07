@@ -1,6 +1,6 @@
 use bytes::BufMut;
 
-use crate::{PacketReader, PacketWriter, NetResult};
+use crate::{NetResult, PacketReader, PacketWriter};
 
 use super::{DecodePacket, EncodePacket};
 

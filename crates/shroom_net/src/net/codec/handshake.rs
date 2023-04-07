@@ -6,7 +6,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::{
     net::crypto::{RoundKey, ROUND_KEY_LEN},
     packet::PacketWrapped,
-    EncodePacket, NetError, NetResult, PacketWriter, DecodePacket
+    DecodePacket, EncodePacket, NetError, NetResult, PacketWriter,
 };
 
 use super::MAX_HANDSHAKE_LEN;
