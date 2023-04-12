@@ -1,5 +1,7 @@
 use std::num::Wrapping;
 
+use cipher::inout::InOutBuf;
+
 pub struct ShandaCipher;
 
 const SHANDA_ROUNDS: usize = 3;
@@ -55,13 +57,13 @@ impl ShandaCipher {
     {
         let n = data.len();
         let mut state = 0;
-        let mut ln = n as u8;
+        let mut ln = Wrapping(n as u8);
 
         for d in data.iter_mut() {
-            let (b, next_state) = apply(*d, state, ln);
+            let (b, next_state) = apply(*d, state, ln.0);
             *d = b;
             state = next_state;
-            ln = ln.wrapping_sub(1);
+            ln -= 1;
         }
     }
 
@@ -83,14 +85,18 @@ impl ShandaCipher {
         }
     }
 
-    pub fn encrypt(data: &mut [u8]) {
+    /// Encrypts the given block of data
+    pub fn encrypt(data: InOutBuf<u8>) {
+        let data = data.into_out();
         for _ in 0..SHANDA_ROUNDS {
             Self::do_even_round(data, Self::round_even_encrypt);
             Self::do_odd_round(data, Self::round_odd_encrypt);
         }
     }
 
-    pub fn decrypt(data: &mut [u8]) {
+    /// Decrypts the given block of data
+    pub fn decrypt(data: InOutBuf<u8>) {
+        let data = data.into_out();
         for _ in 0..SHANDA_ROUNDS {
             Self::do_odd_round(data, Self::round_odd_decrypt);
             Self::do_even_round(data, Self::round_even_decrypt);
@@ -100,15 +106,16 @@ impl ShandaCipher {
 
 #[cfg(test)]
 mod tests {
-    use crate::net::crypto::shanda_cipher::ShandaCipher;
+    use crate::crypto::shanda_cipher::ShandaCipher;
+
 
     #[test]
     fn en_dec_shanda() {
         let data = b"abcdef";
 
         let mut data_enc = *data;
-        ShandaCipher::encrypt(&mut data_enc);
-        ShandaCipher::decrypt(&mut data_enc);
+        ShandaCipher::encrypt(data_enc.as_mut_slice().into());
+        ShandaCipher::decrypt(data_enc.as_mut_slice().into());
         assert_eq!(*data, data_enc);
     }
 

@@ -2,13 +2,19 @@ use bytes::{Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::{
-    net::crypto::{
-        PacketHeader, SharedCryptoContext, ShroomCrypto, ShroomVersion, PACKET_HEADER_LEN,
-    },
+    crypto::{PacketHeader, SharedCryptoContext, ShroomCrypto, ShroomVersion, PACKET_HEADER_LEN},
     NetError, NetResult, ShroomPacket,
 };
 
-use super::{handshake::Handshake, MAX_PACKET_LEN};
+use super::{handshake::Handshake, ShroomCodec, MAX_PACKET_LEN};
+
+fn check_packet_len(len: usize) -> NetResult<()> {
+    if len > MAX_PACKET_LEN {
+        return Err(NetError::FrameSize(len));
+    }
+
+    Ok(())
+}
 
 pub struct PacketCodec {
     pub(crate) decode: PacketDecodeCodec,
@@ -33,12 +39,9 @@ impl PacketCodec {
     }
 }
 
-fn check_packet_len(len: usize) -> NetResult<()> {
-    if len > MAX_PACKET_LEN {
-        return Err(NetError::FrameSize(len));
-    }
-
-    Ok(())
+impl ShroomCodec for PacketCodec {
+    type Encoder = PacketEncodeCodec;
+    type Decoder = PacketDecodeCodec;
 }
 
 pub struct PacketDecodeCodec(pub ShroomCrypto);
@@ -77,7 +80,7 @@ impl Decoder for PacketDecodeCodec {
 
         src.advance(PACKET_HEADER_LEN);
         let mut packet_data = src.split_to(length);
-        self.0.decrypt(packet_data.as_mut());
+        self.0.decrypt(packet_data.as_mut().into());
         let pkt = ShroomPacket::from_data(packet_data.freeze());
 
         Ok(Some(pkt))
@@ -105,7 +108,7 @@ impl<'a> Encoder<&'a [u8]> for PacketEncodeCodec {
         dst.put_slice(&self.0.encode_header(len as u16));
         dst.put_slice(item);
         self.0
-            .encrypt(&mut dst[PACKET_HEADER_LEN..PACKET_HEADER_LEN + len]);
+            .encrypt((&mut dst[PACKET_HEADER_LEN..PACKET_HEADER_LEN + len]).into());
         Ok(())
     }
 }

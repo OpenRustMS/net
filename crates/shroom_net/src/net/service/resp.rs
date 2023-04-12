@@ -93,7 +93,7 @@ pub trait IntoResponse {
     fn into_response(self) -> Self::Resp;
 }
 
-impl<T: EncodePacket + HasOpcode> From<T> for ResponsePacket<T::OP, T> {
+impl<T: EncodePacket + HasOpcode> From<T> for ResponsePacket<T::Opcode, T> {
     fn from(value: T) -> Self {
         ResponsePacket::new(T::OPCODE, value)
     }

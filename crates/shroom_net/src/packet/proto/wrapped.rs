@@ -4,12 +4,16 @@ use crate::{NetResult, PacketReader, PacketWriter};
 
 use super::{DecodePacket, EncodePacket};
 
+/// Provide a wrapper around the `Inner` with conversion methods
+/// Just implementing this wrapper Trait with an `Inner` type which already
+/// implements `EncodePacket` and `DecodePacket` allows you to inherit those for the implemented type
 pub trait PacketWrapped: Sized {
     type Inner;
     fn packet_into_inner(&self) -> Self::Inner;
     fn packet_from(v: Self::Inner) -> Self;
 }
 
+/// Check `PacketWrapped` but with a failable `packet_try_from` method
 pub trait PacketTryWrapped: Sized {
     type Inner;
     fn packet_into_inner(&self) -> Self::Inner;

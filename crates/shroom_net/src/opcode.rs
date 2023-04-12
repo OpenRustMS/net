@@ -1,25 +1,33 @@
 use crate::{error::NetError, DecodePacket, EncodePacket, NetResult};
 
+
+/// Opcode trait which allows conversion from and to the opcode from an `u16`
 pub trait NetOpcode: TryFrom<u16> + Into<u16> + Copy + Clone + Send + Sync {
+    /// Parses the opcode from an u16
     fn get_opcode(v: u16) -> NetResult<Self> {
         Self::try_from(v).map_err(|_| NetError::InvalidOpcode(v))
     }
 }
 
+/// Blanket implementation for u16
 impl NetOpcode for u16 {}
 
+/// Adds an opcode to the type by implementing this trait
 pub trait HasOpcode {
-    type OP: NetOpcode;
+    /// Opcode type
+    type Opcode: NetOpcode;
 
-    const OPCODE: Self::OP;
+    /// Opcode value
+    const OPCODE: Self::Opcode;
 }
 
+/// Helper type to augment any `EncodePacket` + `DecodePacket` type with an opcode
 #[derive(Debug, Default)]
 pub struct WithOpcode<const OP: u16, T>(pub T);
 impl<const OP: u16, T> HasOpcode for WithOpcode<OP, T> {
-    type OP = u16;
+    type Opcode = u16;
 
-    const OPCODE: Self::OP = OP;
+    const OPCODE: Self::Opcode = OP;
 }
 
 impl<const OP: u16, T> EncodePacket for WithOpcode<OP, T>
@@ -46,6 +54,8 @@ where
     }
 }
 
+
+/// Helper macro to add an Opcode to a `packet_ty` easily
 #[macro_export]
 macro_rules! packet_opcode {
     ($packet_ty:ty, $op:path, $ty:ty) => {

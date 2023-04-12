@@ -1,5 +1,6 @@
+pub mod filetime;
 pub mod framed_pipe;
-
+pub mod packet_buffer;
 /// Helper type to calculate size hint
 pub struct SizeHint(pub Option<usize>);
 
@@ -14,6 +15,13 @@ impl SizeHint {
         Self(match (self.0, rhs.0) {
             (Some(a), Some(b)) => Some(a + b),
             _ => None,
+        })
+    }
+
+    pub const fn mul_n(self, n: usize) -> Self {
+        Self(match self.0 {
+            Some(a) => Some(a * n),
+            _ => None
         })
     }
 }

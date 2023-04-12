@@ -1,36 +1,28 @@
-use std::ops::{Deref, DerefMut};
-
 use bytes::BufMut;
+use derive_more::{Deref, DerefMut, From, Into};
 use either::Either;
 
 use crate::{NetResult, PacketReader, PacketWriter};
 
 use super::{DecodePacket, EncodePacket};
 
+/// Helper trait for dealing with conditional En/decoding
 pub trait PacketConditional<'de>: Sized {
+    /// Encode if if the cond evaluates to true
     fn encode_packet_cond<B: BufMut>(&self, cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()>;
+    /// Decode if the cond evaluates to true
     fn decode_packet_cond(cond: bool, pr: &mut PacketReader<'de>) -> NetResult<Self>;
+    /// Length based on cond
     fn packet_len_cond(&self, cond: bool) -> usize;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Conditional Option
+#[derive(Debug, PartialEq, Eq, Clone, Copy, From, Into, Deref, DerefMut)]
 pub struct CondOption<T>(pub Option<T>);
 
 impl<T> Default for CondOption<T> {
     fn default() -> Self {
         Self(None)
-    }
-}
-
-impl<T> From<Option<T>> for CondOption<T> {
-    fn from(value: Option<T>) -> Self {
-        CondOption(value)
-    }
-}
-
-impl<T> From<CondOption<T>> for Option<T> {
-    fn from(value: CondOption<T>) -> Self {
-        value.0
     }
 }
 
@@ -74,28 +66,10 @@ where
     }
 }
 
-impl<T> Deref for CondOption<T> {
-    type Target = Option<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> DerefMut for CondOption<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Conditional either type, cond false => Left, true => Right
+#[derive(Debug, PartialEq, Eq, Clone, Copy, From, Into, Deref, DerefMut)]
 pub struct CondEither<L, R>(pub Either<L, R>);
 
-impl<L, R> From<Either<L, R>> for CondEither<L, R> {
-    fn from(value: Either<L, R>) -> Self {
-        CondEither(value)
-    }
-}
 impl<'de, L, R> PacketConditional<'de> for CondEither<L, R>
 where
     L: EncodePacket + DecodePacket<'de>,
@@ -103,20 +77,18 @@ where
 {
     fn encode_packet_cond<B: BufMut>(&self, cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()> {
         if cond {
-            self.0
+            self
                 .as_ref()
                 .left()
                 .expect("must have value")
-                .encode_packet(pw)?;
+                .encode_packet(pw)
         } else {
-            self.0
+            self
                 .as_ref()
                 .right()
                 .expect("must have value")
-                .encode_packet(pw)?;
+                .encode_packet(pw)
         }
-
-        Ok(())
     }
 
     fn decode_packet_cond(cond: bool, pr: &mut PacketReader<'de>) -> NetResult<Self> {

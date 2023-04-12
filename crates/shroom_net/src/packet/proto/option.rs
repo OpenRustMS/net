@@ -1,16 +1,19 @@
 use std::marker::PhantomData;
 
+use derive_more::{Into, DerefMut, Deref};
+
 use crate::{NetResult, PacketReader, PacketWriter};
 
 use super::{wrapped::PacketWrapped, DecodePacket, DecodePacketOwned, EncodePacket};
 
-pub trait ShroomOptionIndex: EncodePacket + DecodePacketOwned {
+/// Discriminant for Option
+pub trait ShroomOptionDiscriminant: EncodePacket + DecodePacketOwned {
     const NONE_VALUE: Self;
     const SOME_VALUE: Self;
     fn has_value(&self) -> bool;
 }
 
-impl ShroomOptionIndex for u8 {
+impl ShroomOptionDiscriminant for u8 {
     const NONE_VALUE: Self = 0;
     const SOME_VALUE: Self = 1;
     fn has_value(&self) -> bool {
@@ -18,7 +21,7 @@ impl ShroomOptionIndex for u8 {
     }
 }
 
-impl ShroomOptionIndex for bool {
+impl ShroomOptionDiscriminant for bool {
     const NONE_VALUE: Self = false;
     const SOME_VALUE: Self = true;
     fn has_value(&self) -> bool {
@@ -26,10 +29,11 @@ impl ShroomOptionIndex for bool {
     }
 }
 
+/// Reversed Option Discriminant
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RevShroomOptionIndex<Opt>(pub Opt);
+pub struct RevShroomOptionDiscriminant<Opt>(pub Opt);
 
-impl<Opt> PacketWrapped for RevShroomOptionIndex<Opt>
+impl<Opt> PacketWrapped for RevShroomOptionDiscriminant<Opt>
 where
     Opt: Copy,
 {
@@ -44,36 +48,35 @@ where
     }
 }
 
-impl<Opt> ShroomOptionIndex for RevShroomOptionIndex<Opt>
+impl<Opt> ShroomOptionDiscriminant for RevShroomOptionDiscriminant<Opt>
 where
-    Opt: ShroomOptionIndex + Copy,
+    Opt: ShroomOptionDiscriminant + Copy,
 {
-    const NONE_VALUE: Self = RevShroomOptionIndex(Opt::SOME_VALUE);
-    const SOME_VALUE: Self = RevShroomOptionIndex(Opt::NONE_VALUE);
+    const NONE_VALUE: Self = RevShroomOptionDiscriminant(Opt::SOME_VALUE);
+    const SOME_VALUE: Self = RevShroomOptionDiscriminant(Opt::NONE_VALUE);
 
     fn has_value(&self) -> bool {
         !self.0.has_value()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ShroomOption<T, Opt> {
+/// Optional type, first read the discriminant `D`
+/// and then reads the value If D is some
+#[derive(Debug, Clone, Copy, PartialEq, Into, Deref, DerefMut)]
+pub struct ShroomOption<T, D> {
+    #[into]
+    #[deref]
+    #[deref_mut]
     pub opt: Option<T>,
-    _t: PhantomData<Opt>,
+    _t: PhantomData<D>,
 }
 
-impl<T, Opt> ShroomOption<T, Opt> {
+impl<T, D> ShroomOption<T, D> {
     pub fn from_opt(opt: Option<T>) -> Self {
         Self {
             opt,
             _t: PhantomData,
         }
-    }
-}
-
-impl<T, Opt> From<ShroomOption<T, Opt>> for Option<T> {
-    fn from(val: ShroomOption<T, Opt>) -> Self {
-        val.opt
     }
 }
 
@@ -86,10 +89,10 @@ impl<T, Opt> From<Option<T>> for ShroomOption<T, Opt> {
 impl<T, Opt> EncodePacket for ShroomOption<T, Opt>
 where
     T: EncodePacket,
-    Opt: ShroomOptionIndex,
+    Opt: ShroomOptionDiscriminant,
 {
     fn encode_packet<B: bytes::BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
-        match self.opt.as_ref() {
+        match self.as_ref() {
             Some(v) => {
                 Opt::SOME_VALUE.encode_packet(pw)?;
                 v.encode_packet(pw)
@@ -101,7 +104,7 @@ where
     const SIZE_HINT: Option<usize> = None;
 
     fn packet_len(&self) -> usize {
-        match self.opt.as_ref() {
+        match self.as_ref() {
             Some(v) => Opt::SOME_VALUE.packet_len() + v.packet_len(),
             None => Opt::NONE_VALUE.packet_len(),
         }
@@ -111,24 +114,27 @@ where
 impl<'de, T, Opt> DecodePacket<'de> for ShroomOption<T, Opt>
 where
     T: DecodePacket<'de>,
-    Opt: ShroomOptionIndex,
+    Opt: ShroomOptionDiscriminant,
 {
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         let d = Opt::decode_packet(pr)?;
-        let v = if d.has_value() {
+        Ok(if d.has_value() {
             Some(T::decode_packet(pr)?)
         } else {
             None
-        };
+        }.into())
 
-        Ok(Self::from_opt(v))
     }
 }
 
+/// Optional with u8 as discriminator, 0 signaling None, otherwise en/decode `T`
 pub type ShroomOption8<T> = ShroomOption<T, u8>;
-pub type ShroomOptionR8<T> = ShroomOption<T, RevShroomOptionIndex<u8>>;
+/// Optional with reversed u8 as discriminator, 0 signaling en/decode `T`
+pub type ShroomOptionR8<T> = ShroomOption<T, RevShroomOptionDiscriminant<u8>>;
+/// Optional with `bool` as discriminator, false signaling None, otherwise en/decode `T`
 pub type ShroomOptionBool<T> = ShroomOption<T, bool>;
-pub type ShroomOptionRBool<T> = ShroomOption<T, RevShroomOptionIndex<bool>>;
+/// Optional with reversed `bool` as discriminator, false signaling en/decode `T`
+pub type ShroomOptionRBool<T> = ShroomOption<T, RevShroomOptionDiscriminant<bool>>;
 
 #[cfg(test)]
 mod tests {

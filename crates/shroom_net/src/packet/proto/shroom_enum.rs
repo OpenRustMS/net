@@ -1,28 +1,5 @@
-#[macro_export]
-macro_rules! shroom_enum_code {
-    ($name:ident, $repr_ty:ty, $($code_name:ident = $val:expr),+) => {
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, num_enum::TryFromPrimitive, num_enum::IntoPrimitive)]
-        #[repr($repr_ty)]
-        pub enum $name {
-            $($code_name = $val,)*
-        }
-
-        $crate::mark_shroom_enum!($name);
-    };
-
-    ($name:ident, $repr_ty:ty, default($def_name:ident = $def_val:expr), $($code_name:ident = $val:expr),+,) => {
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, num_enum::TryFromPrimitive, num_enum::IntoPrimitive, Default)]
-        #[repr($repr_ty)]
-        pub enum $name {
-            #[default]
-            $def_name = $def_val,
-            $($code_name = $val,)*
-        }
-
-        $crate::mark_shroom_enum!($name);
-    };
-}
-
+/// Mark an enum which implements TryFromPrimitive and Into<Primitive>
+/// as packet encode/decode-able
 #[macro_export]
 macro_rules! mark_shroom_enum {
     ($enum_ty:ty) => {
@@ -40,23 +17,68 @@ macro_rules! mark_shroom_enum {
     };
 }
 
-//TODO support docs
+/// Define an enum with just numbers like:
+/// shroom_enum_code!(EnumCode, u8, A = 1, B = 2, C = 3);
+#[macro_export]
+macro_rules! shroom_enum_code {
+    // Without default
+    ($name:ident, $repr_ty:ty, $($code_name:ident = $val:expr),+) => {
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, num_enum::TryFromPrimitive, num_enum::IntoPrimitive)]
+        #[repr($repr_ty)]
+        pub enum $name {
+            $($code_name = $val,)*
+        }
+
+        $crate::mark_shroom_enum!($name);
+    };
+
+    // With default
+    ($name:ident, $repr_ty:ty, default($def_name:ident = $def_val:expr), $($code_name:ident = $val:expr),+,) => {
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, num_enum::TryFromPrimitive, num_enum::IntoPrimitive, Default)]
+        #[repr($repr_ty)]
+        pub enum $name {
+            #[default]
+            $def_name = $def_val,
+            $($code_name = $val,)*
+        }
+
+        $crate::mark_shroom_enum!($name);
+    };
+}
+
+/// Create a packet enum type with variants likes:
+///             #[derive(Debug, PartialEq)]
+///             pub enum TestChoice: u16 {
+///                 Zero(()) = 0,
+///                 One(()) = 1,
+///                 Two(u32) = 2,
+///             }
 #[macro_export]
 macro_rules! shroom_packet_enum {
-    ($name:ident, $ix_ty:ty, $($variant_name:ident($variant_ty:ty) => $variant_ix:expr),* $(,)?) => {
-        #[derive(Debug)]
-        pub enum $name {
+    // More or less copied from the bit flags crate
+    (
+        $(#[$outer:meta])*
+        $vis:vis enum $Enum:ident: $T:ty {
             $(
-                $variant_name($variant_ty)
+                $(#[$inner:ident $($args:tt)*])*
+                $Variant:ident($VariantTy:ty) =  $VariantDisc:expr
             ),*
         }
 
-        impl $crate::EncodePacket for $name {
+        $($t:tt)*
+    ) => {
+        $(#[$outer])*
+        #[repr($T)]
+        $vis enum $Enum {
+            $($Variant($VariantTy) = $VariantDisc),*
+        }
+
+        impl $crate::EncodePacket for $Enum {
             fn encode_packet<B: bytes::BufMut>(&self, pw: &mut $crate::PacketWriter<B>) -> $crate::NetResult<()> {
                 match self {
                     $(
-                        Self::$variant_name(v) => {
-                            ($variant_ix as $ix_ty).encode_packet(pw)?;
+                        Self::$Variant(v) => {
+                            ($VariantDisc as $T).encode_packet(pw)?;
                             v.encode_packet(pw)?;
                         }
                     ),*
@@ -66,28 +88,27 @@ macro_rules! shroom_packet_enum {
 
             }
 
-
             const SIZE_HINT: Option<usize> = None;
 
             fn packet_len(&self) -> usize {
                 match self {
                     $(
-                        Self::$variant_name(v) => {
-                            <$ix_ty>::SIZE_HINT.unwrap() + v.packet_len()
+                        Self::$Variant(v) => {
+                            <$T>::SIZE_HINT.unwrap() + v.packet_len()
                         }
                     ),*
                 }
             }
         }
 
-        impl<'de> $crate::DecodePacket<'de> for $name {
+        impl<'de> $crate::DecodePacket<'de> for $Enum {
             fn decode_packet(pr: &mut $crate::PacketReader<'de>) -> $crate::NetResult<Self> {
-                let ix = <$ix_ty>::decode_packet(pr)?;
+                let ix = <$T>::decode_packet(pr)?;
                 Ok(match ix {
                     $(
-                        $variant_ix => {
-                            let v = <$variant_ty>::decode_packet(pr)?;
-                            Self::$variant_name(v)
+                        $VariantDisc => {
+                            let v = <$VariantTy>::decode_packet(pr)?;
+                            Self::$Variant(v)
                         }
                     ),*
                     _ => return Err($crate::NetError::InvalidEnumDiscriminant(ix as usize))
@@ -99,33 +120,27 @@ macro_rules! shroom_packet_enum {
 
 #[cfg(test)]
 mod tests {
-    use crate::{DecodePacket, EncodePacket};
+    use crate::packet::proto::tests::enc_dec_test_all;
 
     #[test]
-    fn name() {
+    fn packet_enum() {
         shroom_packet_enum!(
-            TestChoice,
-            u16,
-            One(()) => 0,
-            Two(u32) => 1,
+            #[derive(Debug, PartialEq)]
+            pub enum TestChoice: u16 {
+                One(()) = 0,
+                Two(u32) = 2
+            }
         );
 
-        let data = [TestChoice::One(()), TestChoice::Two(1337)];
-
-        for d in data.iter() {
-            let pkt = d.to_data().unwrap();
-            let _dec = TestChoice::decode_from_data(&pkt).unwrap();
-
-            //TODO find a way to compare: assert_eq!(dec.packet_into_inner(), d.packet_into_inner());
-        }
+        enc_dec_test_all([TestChoice::One(()), TestChoice::Two(1337)]);
     }
 
     #[test]
-    fn code() {
+    fn enum_code() {
         shroom_enum_code!(Code, u8, A = 1, B = 2, C = 3);
 
-        assert_eq!(Code::A, Code::A);
-        let a: u8 = Code::A.into();
-        assert_eq!(a, 1u8);
+        enc_dec_test_all([
+            Code::A, Code::B, Code::C
+        ]);
     }
 }

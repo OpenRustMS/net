@@ -58,6 +58,7 @@ pub enum NetError {
 }
 
 impl NetError {
+    //TODO disable diagnostic for release builds
     pub fn eof<T>(data: &[u8], read_len: usize) -> Self {
         let type_name = std::any::type_name::<T>();
         let pos = data.len().saturating_sub(read_len);

@@ -8,17 +8,14 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    net::{
-        codec::handshake::Handshake, crypto::SharedCryptoContext,
-        service::handler::SessionHandleResult, ShroomSession,
-    },
+    crypto::SharedCryptoContext,
+    net::{codec::handshake::Handshake, service::handler::SessionHandleResult, ShroomSession},
     util::framed_pipe::{framed_pipe, FramedPipeReceiver, FramedPipeSender},
-    NetError,
+    NetError, PacketBuffer,
 };
 
 use super::{
     handler::{MakeServerSessionHandler, ShroomServerSessionHandler, ShroomSessionHandler},
-    packet_buffer::PacketBuffer,
     HandshakeGenerator,
 };
 
@@ -163,9 +160,8 @@ where
                     let p = p.expect("Session packet");
                     self.session.send_raw_packet(&p).await?;
                 },
-                p = self.handler.poll_broadcast() => {
-                    let p = p?.expect("Must contain packet");
-                    self.session.send_raw_packet(p.as_ref()).await?;
+                msg = self.handler.poll_msg() => {
+                    self.handler.handle_msg(&mut self.session, msg?).await?;
                 },
                 _ = self.session_handle.ct.cancelled() => {
                     break;
@@ -185,6 +181,7 @@ where
 
 #[derive(Debug)]
 pub struct ShroomServerConfig {
+    /// Crypto context which contains the keys
     pub crypto_ctx: SharedCryptoContext,
     /// Duration for how long the transport is kept alive after receiving a Migration Response
     pub migrate_delay: Duration,

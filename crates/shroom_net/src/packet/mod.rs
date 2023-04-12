@@ -6,6 +6,7 @@ pub mod writer;
 use crate::NetResult;
 use bytes::{Bytes, BytesMut};
 
+/// Export the reader and writer here
 pub use reader::PacketReader;
 pub use writer::PacketWriter;
 
@@ -14,6 +15,8 @@ pub use proto::*;
 
 /// Decode a `u128` from the given byte array
 pub(crate) fn shroom128_from_bytes(data: [u8; 16]) -> u128 {
+    // u128 are actually somewhat weird, because they are little endian u32 blocks,
+    // but the blocks are ordered in reversed order
     let mut data: [u32; 4] = bytemuck::cast(data);
     data.reverse();
     u128::from_le_bytes(bytemuck::cast(data))
@@ -28,7 +31,7 @@ pub(crate) fn shroom128_to_bytes(v: u128) -> [u8; 16] {
 
 /// Required length to encode this string
 pub(crate) fn packet_str_len(s: &str) -> usize {
-    // Len + data
+    // len(u16) + data
     2 + s.len()
 }
 

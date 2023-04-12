@@ -78,7 +78,7 @@ macro_rules! partial_data {
             }
         }
 
-        $crate::mark_shroom_bit_flags!($partial_name);
+        $crate::mark_shroom_bitflags!($partial_name);
 
         paste::paste! {
             impl $partial_name {
@@ -91,7 +91,7 @@ macro_rules! partial_data {
             #[derive(Debug, Default)]
             pub struct [<$name Partial>] {
                 $(
-                    pub [<$stat_name:lower>]: $crate::packet::proto::CondOption<$stat_ty>,
+                    pub [<$stat_name:lower>]: $crate::packet::CondOption<$stat_ty>,
                 )*
             }
 

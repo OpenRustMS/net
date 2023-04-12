@@ -6,59 +6,75 @@ use crate::{error::NetError, opcode::NetOpcode, NetResult};
 
 use super::shroom128_from_bytes;
 
+/// Packet Reader for reading data
 #[derive(Debug)]
 pub struct PacketReader<'a> {
     inner: Cursor<&'a [u8]>,
 }
 
 impl<'a> PacketReader<'a> {
-    pub fn str_packet_len(s: &str) -> usize {
-        // Len + data
-        2 + s.len()
-    }
-
+    /// Create a new Pacekt reader from a slice
     pub fn new(inner: &'a [u8]) -> Self {
         Self {
             inner: Cursor::new(inner),
         }
     }
 
+    /// Consume the reader as slice
     pub fn into_inner(self) -> &'a [u8] {
         self.inner.into_inner()
     }
 
+    /// Helper function to check if there's enough bytes to read `T`
+    /// the size `n` still has to be passed as the T is just used for the Error context
     fn check_size_typed<T>(&self, n: usize) -> NetResult<()> {
         if self.inner.remaining() >= n {
             Ok(())
         } else {
-            //TODO disable diagnostic for release builds
             Err(NetError::eof::<T>(self.inner.get_ref(), n))
         }
     }
 
+    /// Check if there's enough remaining bytes
     fn check_size(&self, n: usize) -> NetResult<()> {
         self.check_size_typed::<()>(n)
     }
 
-    pub fn remaining_slice(&self) -> &'a [u8] {
+    #[inline]
+    fn read_bytes_inner<T>(&mut self, n: usize) -> NetResult<&'a [u8]> {
+        self.check_size_typed::<T>(n)?;
         let p = self.inner.position() as usize;
-        &self.inner.get_ref()[p..]
+        // Size is already checked here
+        let by = &self.inner.get_ref()[p..p + n];
+        self.inner.advance(n);
+        Ok(by)
     }
 
-    pub fn sub_reader(&self) -> Self {
-        Self::new(self.remaining_slice())
-    }
-
-    pub fn commit_sub_reader(&mut self, sub_reader: Self) -> NetResult<()> {
-        self.advance(sub_reader.inner.position() as usize)
-    }
-
+    /// Advances this reader by n bytes
     pub fn advance(&mut self, n: usize) -> NetResult<()> {
         self.check_size(n)?;
         self.inner.advance(n);
         Ok(())
     }
 
+    ///Get the reamining slice
+    pub fn remaining_slice(&self) -> &'a [u8] {
+        let p = self.inner.position() as usize;
+        &self.inner.get_ref()[p..]
+    }
+
+    /// Create a sub reader based on this slice
+    pub fn sub_reader(&self) -> Self {
+        Self::new(self.remaining_slice())
+    }
+
+    /// Commit a sub reader
+    /// as in advancing the position of this reader
+    pub fn commit_sub_reader(&mut self, sub_reader: Self) -> NetResult<()> {
+        self.advance(sub_reader.inner.position() as usize)
+    }
+
+    /// Read the given Opcode `T`
     pub fn read_opcode<T: NetOpcode>(&mut self) -> NetResult<T> {
         let v = self.read_u16()?;
         T::get_opcode(v)
@@ -133,6 +149,7 @@ impl<'a> PacketReader<'a> {
         Ok(std::str::from_utf8(str_inner)?)
     }
 
+    /// Read string but limit the max length in bytes
     pub fn read_string_limited(&mut self, limit: usize) -> NetResult<&'a str> {
         let n = self.read_u16()? as usize;
         if n > limit {
@@ -148,18 +165,6 @@ impl<'a> PacketReader<'a> {
     }
 
     pub fn read_array<const N: usize>(&mut self) -> NetResult<[u8; N]> {
-        let arr: [u8; N] = self.read_bytes_inner::<[u8; N]>(N)?.try_into().unwrap();
-
-        Ok(arr)
-    }
-
-    #[inline]
-    fn read_bytes_inner<T>(&mut self, n: usize) -> NetResult<&'a [u8]> {
-        self.check_size_typed::<T>(n)?;
-        let p = self.inner.position() as usize;
-        // Size is already checked here
-        let by = &self.inner.get_ref()[p..p + n];
-        self.inner.advance(n);
-        Ok(by)
+        Ok(self.read_bytes_inner::<[u8; N]>(N)?.try_into().unwrap())
     }
 }

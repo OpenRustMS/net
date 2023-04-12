@@ -1,12 +1,12 @@
 pub mod handler;
-pub mod packet_buffer;
 pub mod resp;
 pub mod server_sess;
 pub mod session_set;
 
 use arrayvec::ArrayString;
 
-use super::{codec::handshake::Handshake, crypto::RoundKey};
+use crate::crypto::RoundKey;
+use super::codec::handshake::{Handshake, LocaleCode};
 
 /// Handshake generator, to generate a handshake
 pub trait HandshakeGenerator {
@@ -19,11 +19,12 @@ pub trait HandshakeGenerator {
 pub struct BasicHandshakeGenerator {
     version: u16,
     sub_version: ArrayString<2>,
-    locale: u8,
+    locale: LocaleCode,
 }
 
 impl BasicHandshakeGenerator {
-    pub fn new(version: u16, sub_version: &str, locale: u8) -> Self {
+    /// Create a new handshake generator, will panic if subversion is larger than 2
+    pub fn new(version: u16, sub_version: &str, locale: LocaleCode) -> Self {
         Self {
             version,
             sub_version: sub_version.try_into().expect("Subversion"),
@@ -31,12 +32,14 @@ impl BasicHandshakeGenerator {
         }
     }
 
+    /// Create a handshake generator for global v95
     pub fn v95() -> Self {
-        Self::new(95, "1", 8)
+        Self::new(95, "1", LocaleCode::Global)
     }
 
+    /// Create a handshake generator for global v83
     pub fn v83() -> Self {
-        Self::new(83, "1", 8)
+        Self::new(83, "1", LocaleCode::Global)
     }
 }
 

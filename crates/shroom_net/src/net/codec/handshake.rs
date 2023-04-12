@@ -4,25 +4,48 @@ use arrayvec::ArrayString;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{
-    net::crypto::{RoundKey, ROUND_KEY_LEN},
     packet::PacketWrapped,
-    DecodePacket, EncodePacket, NetError, NetResult, PacketWriter,
+    DecodePacket, EncodePacket, NetError, NetResult, PacketWriter, crypto::{RoundKey, ROUND_KEY_LEN}, shroom_enum_code,
 };
 
 use super::MAX_HANDSHAKE_LEN;
 
+/// Handshake buffer
 pub type HandshakeBuf = [u8; MAX_HANDSHAKE_LEN + 2];
 
+//Locale code for handshake, T means test server
+shroom_enum_code!(
+    LocaleCode,
+    u8,
+    Korea = 1,
+    KoreaT = 2,
+    Japan = 3,
+    China = 4,
+    ChinaT = 5, 
+    Taiwan = 6,
+    TaiwanT = 7,
+    Global = 8,
+    Europe = 9,
+    RlsPe = 10
+);
+
+/// Codec Handshake
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
 pub struct Handshake {
+    /// Version
     pub version: u16,
+    // Subversion up to a length of 2
     pub subversion: ArrayString<2>,
+    /// Encrypt IV
     pub iv_enc: RoundKey,
+    /// Decrypt IV
     pub iv_dec: RoundKey,
-    pub locale: u8,
+    /// Locale
+    pub locale: LocaleCode,
 }
 
 impl Handshake {
+    /// Decode the handshake length
     fn decode_handshake_len(data: [u8; 2]) -> NetResult<usize> {
         let ln = u16::from_le_bytes(data) as usize;
         if ln <= MAX_HANDSHAKE_LEN {
@@ -32,6 +55,7 @@ impl Handshake {
         }
     }
 
+    /// Read a handshake from the underlying reader async
     pub async fn read_handshake_async<R: AsyncRead + Unpin>(mut r: R) -> NetResult<Self> {
         let mut ln_data = [0u8; 2];
         r.read_exact(&mut ln_data).await?;
@@ -42,6 +66,7 @@ impl Handshake {
         Self::decode_from_data(&handshake_data[..ln]).map_err(|_| NetError::InvalidHandshake)
     }
 
+    /// Read a shandshake from the underlying reader
     pub fn read_handshake<R: Read>(mut r: R) -> NetResult<Self> {
         let mut ln_data = [0u8; 2];
         r.read_exact(&mut ln_data)?;
@@ -52,6 +77,16 @@ impl Handshake {
         Self::decode_from_data(&handshake_data[..ln]).map_err(|_| NetError::InvalidHandshake)
     }
 
+    /// Write a handshake async
+    pub async fn write_handshake_async<W: AsyncWrite + Unpin>(&self, mut w: W) -> NetResult<()> {
+        let mut buf = HandshakeBuf::default();
+        let n = self.encode_with_len(&mut buf);
+        w.write_all(&buf[..n]).await?;
+
+        Ok(())
+    }
+
+    /// Write handshake
     pub fn write_handshake<W: Write>(&self, mut w: W) -> NetResult<()> {
         let mut buf = HandshakeBuf::default();
         let n = self.encode_with_len(&mut buf);
@@ -60,19 +95,10 @@ impl Handshake {
         Ok(())
     }
 
-    pub async fn write_handshake_async<W: AsyncWrite + Unpin>(&self, mut w: W) -> NetResult<()> {
-        let mut buf = HandshakeBuf::default();
-        let n = self.encode_with_len(&mut buf);
-
-        w.write_all(&buf[..n]).await?;
-
-        Ok(())
-    }
-
+    /// Encode the handshake onto the buffer
     pub fn encode_with_len(&self, buf: &mut HandshakeBuf) -> usize {
         let n = self.packet_len();
 
-        //TODO return buffer with size somehow, use arrayvec? and impl bufmut?
         let mut pw = PacketWriter::new(buf.as_mut());
         pw.write_u16(n as u16).expect("Handshake len");
         self.encode_packet(&mut pw).unwrap();
@@ -81,13 +107,14 @@ impl Handshake {
     }
 }
 
+// Wrapper to implement encode/decode
 impl PacketWrapped for Handshake {
     type Inner = (
         u16,
         ArrayString<2>,
         [u8; ROUND_KEY_LEN],
         [u8; ROUND_KEY_LEN],
-        u8,
+        LocaleCode,
     );
 
     fn packet_into_inner(&self) -> Self::Inner {
@@ -115,7 +142,7 @@ impl PacketWrapped for Handshake {
 mod tests {
     use arrayvec::ArrayString;
 
-    use crate::{net::crypto::RoundKey, DecodePacket, EncodePacket, PacketWriter, ShroomPacket};
+    use crate::{DecodePacket, EncodePacket, PacketWriter, ShroomPacket, crypto::RoundKey, net::codec::handshake::LocaleCode};
 
     use super::Handshake;
 
@@ -126,7 +153,7 @@ mod tests {
             subversion: ArrayString::try_from("2").unwrap(),
             iv_enc: RoundKey([1u8; 4]),
             iv_dec: RoundKey([2u8; 4]),
-            locale: 5,
+            locale: LocaleCode::Global,
         };
 
         let mut pw = PacketWriter::default();

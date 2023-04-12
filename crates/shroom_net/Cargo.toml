@@ -1,10 +1,11 @@
 [package]
 name = "shroom_net"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dev-dependencies]
 turmoil = "0.5"
+quickcheck = "1"
 
 [dependencies]
 anyhow = "1.0.69"
@@ -32,3 +33,6 @@ futures = "0.3.28"
 log = "0.4.17"
 itertools = "0.10.5"
 indexmap = "1.9.3"
+quickcheck = "1.0.3"
+parking_lot = "0.12.1"
+derive_more = "0.99.17"

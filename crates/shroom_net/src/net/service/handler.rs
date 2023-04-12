@@ -2,7 +2,6 @@ use std::{fmt::Debug, time::Duration};
 
 use async_trait::async_trait;
 use futures::{future, Future};
-use tokio::sync::mpsc;
 
 use crate::{
     net::{SessionTransport, ShroomSession},
@@ -14,8 +13,6 @@ use super::{
     server_sess::SharedSessionHandle,
 };
 
-pub type BroadcastSender = mpsc::Sender<ShroomPacket>;
-
 /// Session handle result
 pub enum SessionHandleResult {
     /// Indicates this handler finished succesfully
@@ -26,18 +23,30 @@ pub enum SessionHandleResult {
     Pong,
 }
 
+/// Session handler trait, which used to handle packets and handle messages
 #[async_trait]
 pub trait ShroomSessionHandler: Sized {
     type Transport: SessionTransport;
     type Error: From<NetError> + Debug;
+    type Msg: Send;
 
+    /// Handle an incoming packet
     async fn handle_packet(
         &mut self,
         packet: ShroomPacket,
         session: &mut ShroomSession<Self::Transport>,
     ) -> Result<SessionHandleResult, Self::Error>;
 
-    async fn poll_broadcast(&mut self) -> Result<Option<ShroomPacket>, Self::Error> {
+    /// Handle a passed message
+    async fn handle_msg(
+        &mut self,
+        session: &mut ShroomSession<Self::Transport>,
+        msg: Self::Msg
+    ) -> Result<(), Self::Error>;
+
+    /// Poll a message to archive an actor like message passing
+    /// per default that's a never ending future
+    async fn poll_msg(&mut self) -> Result<Self::Msg, Self::Error> {
         future::pending::<()>().await;
         unreachable!()
     }
@@ -47,18 +56,15 @@ pub trait ShroomSessionHandler: Sized {
     }
 }
 
-#[async_trait]
-pub trait ShroomServerSessionHandler: ShroomSessionHandler {
-    fn get_ping_interval() -> Duration;
-    fn get_ping_packet(&mut self) -> Result<ShroomPacket, Self::Error>;
-}
-
+/// Session factory
 #[async_trait]
 pub trait MakeServerSessionHandler {
     type Transport: SessionTransport;
     type Error: From<NetError> + Debug;
     type Handler: ShroomServerSessionHandler<Transport = Self::Transport, Error = Self::Error>;
 
+    /// Create a new handler for the given `session`
+    /// and the shared session `handle`
     async fn make_handler(
         &mut self,
         sess: &mut ShroomSession<Self::Transport>,
@@ -66,21 +72,19 @@ pub trait MakeServerSessionHandler {
     ) -> Result<Self::Handler, Self::Error>;
 }
 
-// TODO: sooner or later there should be a proper service/handler trait for this
-// Prior attempts to define a service trait failed for several reasons
-// 1. Unable to reuse the session to send the response after the handler was called
-// 2. Lifetime 'a in DecodePacket<'a> is close to impossible to express while implementing the trait for a FnMut
-// If you have better ideas how to implement this I'm completely open to this
-// Also the current design is not final, It'd probably make sense to store the state
-// in the session to avoid having 2 mut references, however It'd be quiet a challenge to call self methods
-// on the state, cause you'd still like to have a session to send packets
+#[async_trait]
+pub trait ShroomServerSessionHandler: ShroomSessionHandler {
+    fn get_ping_interval() -> Duration;
+    fn get_ping_packet(&mut self) -> Result<ShroomPacket, Self::Error>;
+}
+
 
 /// Call a the specified handler function `f` and process the returned response
 pub async fn call_handler_fn<'session, F, Req, Fut, Trans, State, Resp, Err>(
     state: &'session mut State,
     session: &'session mut ShroomSession<Trans>,
     mut pr: PacketReader<'session>,
-    mut f: F,
+    mut f_handler: F,
 ) -> Result<SessionHandleResult, Err>
 where
     Req: DecodePacket<'session>,
@@ -91,14 +95,27 @@ where
     Trans: SessionTransport + Send + Unpin,
 {
     let req = Req::decode_packet(&mut pr)?;
-    let resp = f(state, req).await?.into_response();
+    let resp = f_handler(state, req).await?.into_response();
     Ok(resp.send(session).await?)
 }
 
+/// Declares an async router fn
+/// which routes the packet to the matching handler
+/// by reading the Opcode and checking It against the `OPCODE` from the `HasOpcode` Trait
+/// Example:
+/// 
+/// shroom_router_fn!(
+///     handle, // name
+///     State,  // State type
+///     ShroomSession<TcpStream>,  // Session type
+///     anyhow::Error, // Error type
+///     State::handle_default, // fallback handler
+///     PacketReq => State::handle_req, // Handle PacketReq with handle_req
+/// );
 #[macro_export]
-macro_rules! shroom_router_handler {
-    ($name: ident, $state:ty, $session:ty, $err:ty, $default_handler:expr, $($req:ty => $handler_fn:expr),* $(,)?) => {
-        async fn $name<'session>(state: &'session mut $state, session: &'session mut $session, mut pr: $crate::PacketReader<'session>) ->  Result<SessionHandleResult, $err> {
+macro_rules! shroom_router_fn {
+    ($fname:ident, $state:ty, $session:ty, $err:ty, $default_handler:expr, $($req:ty => $handler_fn:expr),* $(,)?) => {
+        async fn $fname<'session>(state: &'session mut $state, session: &'session mut $session, mut pr: $crate::PacketReader<'session>) ->  Result<SessionHandleResult, $err> {
             let recv_op = pr.read_opcode()?;
             match recv_op {
                 $(
@@ -116,12 +133,11 @@ mod tests {
 
     use crate::{
         net::{
-            crypto::SharedCryptoContext,
             service::{BasicHandshakeGenerator, HandshakeGenerator},
             ShroomSession,
         },
         opcode::WithOpcode,
-        PacketReader, PacketWriter,
+        PacketReader, PacketWriter, crypto::SharedCryptoContext,
     };
 
     use super::SessionHandleResult;
@@ -165,7 +181,7 @@ mod tests {
 
         let pkt = pw.into_packet();
 
-        shroom_router_handler!(
+        shroom_router_fn!(
             handle,
             State,
             ShroomSession<io::Cursor<Vec<u8>>>,

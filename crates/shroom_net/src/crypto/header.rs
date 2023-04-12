@@ -1,6 +1,6 @@
 use crate::{NetError, NetResult};
 
-use super::{PacketHeader, RoundKey, ShroomVersion, PACKET_HEADER_LEN};
+use super::{PacketHeader, RoundKey, PACKET_HEADER_LEN};
 
 /// Small helper to work with high low words in a 32 bit integer
 struct HiLo32 {
@@ -27,12 +27,12 @@ impl HiLo32 {
     }
 }
 
-pub fn decode_header(hdr: PacketHeader, key: RoundKey, version: ShroomVersion) -> NetResult<u16> {
+pub fn decode_header(hdr: PacketHeader, key: RoundKey, ver: u16) -> NetResult<u16> {
     let key = key.0;
     let v = HiLo32::from_le_bytes(hdr);
     let key_high = u16::from_le_bytes([key[2], key[3]]);
     let len = v.low ^ v.high;
-    let hdr_key = v.low ^ version.0;
+    let hdr_key = v.low ^ ver;
 
     if hdr_key != key_high {
         return Err(NetError::InvalidHeader {
@@ -45,30 +45,20 @@ pub fn decode_header(hdr: PacketHeader, key: RoundKey, version: ShroomVersion) -
     Ok(len)
 }
 
-pub fn encode_header(key: RoundKey, length: u16, version: ShroomVersion) -> PacketHeader {
+pub fn encode_header(key: RoundKey, length: u16, ver: u16) -> PacketHeader {
     let key = key.0;
     let key_high = u16::from_le_bytes([key[2], key[3]]);
-    let low = key_high ^ version.0;
+    let low = key_high ^ ver;
     let hilo = HiLo32::from_low_high(low ^ length, low);
     hilo.to_le_bytes()
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::net::crypto::{PacketHeader, RoundKey, ShroomVersion};
+
+    use crate::crypto::RoundKey;
 
     use super::{decode_header, encode_header};
-
-    const V65: ShroomVersion = ShroomVersion(65);
-    const V83: ShroomVersion = ShroomVersion(83);
-
-    fn enc(key: RoundKey, len: u16, v: ShroomVersion) -> PacketHeader {
-        encode_header(key, len, v)
-    }
-
-    fn dec(key: RoundKey, hdr: PacketHeader, v: ShroomVersion) -> u16 {
-        decode_header(hdr, key, v).unwrap()
-    }
 
     const KEY: RoundKey = RoundKey([82, 48, 120, 232]);
     const KEY2: RoundKey = RoundKey([82, 48, 120, 89]);
@@ -76,15 +66,15 @@ mod tests {
     #[test]
     fn header_enc_dec() {
         let tests = [
-            (44, KEY, V65.invert()),
-            (2, RoundKey([70, 114, 122, 210]), V83),
-            (24, KEY2, V83.invert()),
-            (627, KEY, V83.invert()),
+            (44, KEY, -66i16 as u16),
+            (2, RoundKey([70, 114, 122, 210]), 83),
+            (24, KEY2, -84i16 as u16),
+            (627, KEY, -84i16 as u16),
         ];
 
         for (ln, key, ver) in tests {
-            let a = enc(key, ln, ver);
-            assert_eq!(dec(key, a, ver), ln)
+            let a = encode_header(key, ln, ver);
+            assert_eq!(decode_header(a, key, ver).expect("valid header"), ln)
         }
     }
 }

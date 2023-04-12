@@ -1,6 +1,5 @@
 pub mod bits;
 pub mod conditional;
-pub mod constant;
 pub mod geo;
 pub mod list;
 pub mod option;
@@ -11,20 +10,29 @@ pub mod shroom_enum;
 pub mod string;
 pub mod time;
 pub mod wrapped;
-//pub mod tracing;
 
 use bytes::BufMut;
 
+pub use bits::{ShroomBitFlags, ShroomPackedStruct};
+
 pub use conditional::{CondEither, CondOption, PacketConditional};
 pub use list::{
-    ShroomIndexList, ShroomList, ShroomList16, ShroomList32, ShroomList64, ShroomList8,
-    ShroomListIndexZ,
+    ShroomIndexList, ShroomIndexList16, ShroomIndexList32, ShroomIndexList64, ShroomIndexList8,
+    ShroomIndexListZ, ShroomIndexListZ16, ShroomIndexListZ32, ShroomIndexListZ64,
+    ShroomIndexListZ8, ShroomList, ShroomList16, ShroomList32, ShroomList64, ShroomList8,
 };
+pub use option::{
+    ShroomOption, ShroomOption8, ShroomOptionBool, ShroomOptionR8, ShroomOptionRBool,
+};
+pub use padding::Padding;
+pub use time::{ShroomDurationMs16, ShroomDurationMs32, ShroomExpirationTime, ShroomTime};
 pub use wrapped::{PacketTryWrapped, PacketWrapped};
 
 use crate::{NetResult, PacketReader, PacketWriter, ShroomPacket};
 
+/// Decodes this type from a packet reader
 pub trait DecodePacket<'de>: Sized {
+    /// Decodes from the given reader
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self>;
 
     fn decode_packet_n(pr: &mut PacketReader<'de>, n: usize) -> NetResult<Vec<Self>> {
@@ -48,11 +56,14 @@ pub trait DecodePacket<'de>: Sized {
         })
     }
 
+    /// Decodes from the given byte slice
     fn decode_from_data(data: &'de [u8]) -> NetResult<Self> {
         let mut r = PacketReader::new(data);
         Self::decode_packet(&mut r)
     }
 
+    /// Decodes from the given byte slice and ensures
+    /// every byte was read
     fn decode_from_data_complete(data: &'de [u8]) -> anyhow::Result<Self> {
         let mut r = PacketReader::new(data);
         let res = Self::decode_packet(&mut r)?;
@@ -63,11 +74,15 @@ pub trait DecodePacket<'de>: Sized {
     }
 }
 
+/// Encodes this type on a packet writer
 pub trait EncodePacket: Sized {
+    /// Size Hint for types with a known type at compile time
     const SIZE_HINT: Option<usize>;
 
+    /// Get the encoded length of this type
     fn packet_len(&self) -> usize;
 
+    /// Encodes the packet onto the writer
     fn encode_packet<T: BufMut>(&self, pw: &mut PacketWriter<T>) -> NetResult<()>;
 
     /// Encodes this data as slice
@@ -79,17 +94,20 @@ pub trait EncodePacket: Sized {
         Ok(())
     }
 
+    /// Encodes the type on a writer and returns the data
     fn to_data(&self) -> NetResult<bytes::Bytes> {
         let mut pw = PacketWriter::default();
         self.encode_packet(&mut pw)?;
         Ok(pw.into_inner().freeze())
     }
 
+    /// Encodes this type as a packet
     fn to_packet(&self) -> NetResult<ShroomPacket> {
         Ok(ShroomPacket::from_data(self.to_data()?))
     }
 }
 
+/// Decodes a container with the given size
 pub trait DecodePacketSized<'de, T>: Sized {
     fn decode_packet_sized(pr: &mut PacketReader<'de>, size: usize) -> NetResult<Self>;
 }
@@ -103,11 +121,15 @@ where
     }
 }
 
+/// Helper trait to remove the lifetime from types without one
 pub trait DecodePacketOwned: for<'de> DecodePacket<'de> {}
 impl<T> DecodePacketOwned for T where T: for<'de> DecodePacket<'de> {}
 
+/// Tuple support helper
 macro_rules! impl_packet {
-    ( $($name: ident)* ) => {
+    // List of idents splitted by names or well tuple types here
+    ( $($name:ident)* ) => {
+        // Expand tuples and add a generic bound
         impl<$($name,)*> $crate::EncodePacket for ($($name,)*)
             where $($name: $crate::EncodePacket,)* {
                 fn encode_packet<T: BufMut>(&self, pw: &mut PacketWriter<T>) -> NetResult<()> {
@@ -140,6 +162,7 @@ macro_rules! impl_packet {
     }
 }
 
+// Implement the tuples here
 macro_rules! impl_for_tuples {
     ($apply_macro:ident) => {
         $apply_macro! { A }

@@ -11,15 +11,13 @@ use cipher::{
 
 use crate::{NetError, NetResult};
 
-use super::{key::DEFAULT_AES_KEY, RoundKey, AES_BLOCK_LEN};
+use super::{RoundKey, AES_BLOCK_LEN, DEFAULT_AES_KEY};
 
 const BLOCK_LEN: usize = 1460;
 const FIRST_BLOCK_LEN: usize = BLOCK_LEN - 4;
 type U1460 = <U1000 as Add<U460>>::Output;
 
-pub struct ShroomAESCipher {
-    cipher: Aes256,
-}
+pub struct ShroomAESCipher(Aes256);
 
 impl Default for ShroomAESCipher {
     fn default() -> Self {
@@ -29,13 +27,13 @@ impl Default for ShroomAESCipher {
 
 impl ShroomAESCipher {
     pub fn new(key: &[u8]) -> NetResult<Self> {
-        Ok(Self {
-            cipher: Aes256::new_from_slice(key).map_err(|_| NetError::InvalidAESKey)?,
-        })
+        Ok(Self(
+            Aes256::new_from_slice(key).map_err(|_| NetError::InvalidAESKey)?,
+        ))
     }
 
     fn get_next_key(&self, key: &mut GenericArray<u8, U16>) {
-        self.cipher
+        self.0
             .encrypt_padded::<NoPadding>(key, AES_BLOCK_LEN)
             .unwrap();
     }
@@ -75,7 +73,8 @@ impl ShroomAESCipher {
 
 #[cfg(test)]
 mod tests {
-    use crate::net::crypto::RoundKey;
+
+    use crate::crypto::RoundKey;
 
     use super::ShroomAESCipher;
 

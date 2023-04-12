@@ -10,13 +10,11 @@ use tokio_util::codec::Framed;
 
 use crate::{
     opcode::{HasOpcode, NetOpcode},
-    EncodePacket, NetResult, PacketWriter, ShroomPacket,
+    EncodePacket, NetResult, PacketWriter, ShroomPacket, crypto::SharedCryptoContext, PacketBuffer,
 };
 
 use super::{
     codec::{handshake::Handshake, packet_codec::PacketCodec},
-    crypto::SharedCryptoContext,
-    service::packet_buffer::PacketBuffer,
 };
 
 pub trait SessionTransport: AsyncWrite + AsyncRead {}
@@ -143,11 +141,10 @@ mod tests {
     use arrayvec::ArrayString;
     use turmoil::net::{TcpListener, TcpStream};
 
-    use crate::net::{
-        codec::handshake::Handshake,
-        crypto::{RoundKey, SharedCryptoContext},
+    use crate::{net::{
+        codec::handshake::{Handshake, LocaleCode},
         ShroomSession,
-    };
+    }, crypto::{RoundKey, SharedCryptoContext}};
 
     const PORT: u16 = 1738;
 
@@ -167,7 +164,7 @@ mod tests {
                 subversion: ArrayString::try_from("1").unwrap(),
                 iv_enc: RoundKey::zero(),
                 iv_dec: RoundKey::zero(),
-                locale: 1,
+                locale: LocaleCode::Global,
             };
 
             let listener = bind().await?;

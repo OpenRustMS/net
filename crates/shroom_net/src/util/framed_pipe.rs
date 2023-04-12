@@ -1,9 +1,4 @@
-use std::{
-    ops::DerefMut,
-    pin::Pin,
-    sync::{Arc, Mutex},
-    task::Poll,
-};
+use std::{ops::DerefMut, pin::Pin, sync::Arc, task::Poll};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{channel::mpsc, ready, Sink, Stream};
@@ -17,6 +12,8 @@ pub enum FramedPipeError {
     SendError(#[from] mpsc::SendError),
     #[error("Out of capacity")]
     OutOfCapacity,
+    #[error("Capacity limit was reached")]
+    CapacityLimitReached,
 }
 
 /// A `Pipe` which works on frames
@@ -24,6 +21,7 @@ pub enum FramedPipeError {
 struct FramedPipeBuf {
     buf: BytesMut,
     cap: usize,
+    missed: usize,
 }
 
 impl FramedPipeBuf {
@@ -32,6 +30,7 @@ impl FramedPipeBuf {
         Self {
             buf: BytesMut::with_capacity(cap),
             cap,
+            missed: 0,
         }
     }
 
@@ -54,6 +53,7 @@ impl FramedPipeBuf {
             // If buffer is reallocated the space is usually doubled
             // so this check should be sufficient for the current use-case
             if self.buf.capacity() + self.buf.len() > self.cap {
+                self.missed += 1;
                 return Err(FramedPipeError::OutOfCapacity);
             }
         }
@@ -68,7 +68,7 @@ impl FramedPipeBuf {
 }
 
 /// Shared handle for Sender and Receiver
-type SharedFramedPipeBuf = Arc<Mutex<FramedPipeBuf>>;
+type SharedFramedPipeBuf = Arc<parking_lot::Mutex<FramedPipeBuf>>;
 
 /// A sender for the `FramedPipe` can be cloned and used a `Sink`
 #[derive(Debug, Clone)]
@@ -93,7 +93,7 @@ impl FramedPipeSender {
 
     /// Helper method for the Sink impl
     fn push(&mut self, frame: &[u8]) -> Result<(), FramedPipeError> {
-        let mut buf = self.buf.lock().expect("Writing frame");
+        let mut buf = self.buf.lock();
         buf.check_capacity(frame)?;
         self.tx.start_send(frame.len())?;
         buf.put(frame);
@@ -102,7 +102,7 @@ impl FramedPipeSender {
 
     /// Try to send a frame onto the pipe
     pub fn try_send<B: AsRef<[u8]>>(&mut self, item: B) -> Result<(), FramedPipeError> {
-        let mut buf = self.buf.lock().expect("Writing frame");
+        let mut buf = self.buf.lock();
         Self::try_push(item.as_ref(), buf.deref_mut(), &mut self.tx)
     }
 
@@ -112,7 +112,7 @@ impl FramedPipeSender {
         &mut self,
         items: impl Iterator<Item = B>,
     ) -> Result<(), FramedPipeError> {
-        let mut buf = self.buf.lock().expect("Writing frame");
+        let mut buf = self.buf.lock();
         for item in items {
             Self::try_push(item.as_ref(), buf.deref_mut(), &mut self.tx)?
         }
@@ -171,7 +171,7 @@ impl Stream for FramedPipeReceiver {
         // There's only one reader so we can just wait on the channel
         // and then read the frame of the buffer
         let next_frame = ready!(Pin::new(&mut self.rx).poll_next(cx));
-        Poll::Ready(next_frame.map(|frame| self.buf.lock().expect("next frame").take(frame)))
+        Poll::Ready(next_frame.map(|frame| self.buf.lock().take(frame)))
     }
 }
 
@@ -179,7 +179,7 @@ impl Stream for FramedPipeReceiver {
 /// `buf_cap` describes the maximum capacity in bytes for the buffer
 /// `frame_cap` describes the maximum capacity in terms of frames
 pub fn framed_pipe(buf_cap: usize, frame_cap: usize) -> (FramedPipeSender, FramedPipeReceiver) {
-    let buf = Arc::new(Mutex::new(FramedPipeBuf::new(buf_cap)));
+    let buf = Arc::new(parking_lot::Mutex::new(FramedPipeBuf::new(buf_cap)));
     let (tx, rx) = mpsc::channel(frame_cap);
 
     (

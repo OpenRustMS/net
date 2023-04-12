@@ -8,6 +8,8 @@ use crate::{
 };
 
 use super::PacketTryWrapped;
+ 
+// Basic support for String and str
 
 impl EncodePacket for String {
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
@@ -41,10 +43,12 @@ impl<'a> EncodePacket for &'a str {
     const SIZE_HINT: Option<usize> = None;
 
     fn packet_len(&self) -> usize {
-        PacketReader::str_packet_len(self)
+        packet_str_len(self)
     }
 }
 
+
+// Basic support for ArrayString
 impl<const N: usize> EncodePacket for arrayvec::ArrayString<N> {
     fn encode_packet<T>(&self, pw: &mut PacketWriter<T>) -> NetResult<()>
     where
@@ -67,6 +71,7 @@ impl<'de, const N: usize> DecodePacket<'de> for arrayvec::ArrayString<N> {
     }
 }
 
+// Helper function which truncates after the first zero(included)
 fn from_c_str<const N: usize>(b: &[u8; N]) -> Result<ArrayString<N>, Utf8Error> {
     let mut result = ArrayString::from_byte_string(b)?;
     if let Some(i) = &result.find('\0') {
@@ -110,9 +115,16 @@ impl<'a, const N: usize> TryFrom<&'a str> for FixedPacketString<N> {
 mod tests {
     use arrayvec::ArrayString;
 
-    use crate::packet::proto::tests::enc_dec_test_all;
+    use crate::packet::proto::tests::{enc_dec_test_all, enc_dec_test};
 
     use super::FixedPacketString;
+
+    quickcheck::quickcheck! {
+        #[test]
+        fn q_str(s: String) -> () {
+            enc_dec_test(s);
+        }
+    }
 
     #[test]
     fn string() {

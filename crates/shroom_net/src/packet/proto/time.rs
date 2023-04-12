@@ -1,106 +1,12 @@
 use std::{fmt::Debug, time::Duration};
 
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 
-use crate::{NetError, NetResult};
+use crate::{FileTime, NetResult};
 
 use super::wrapped::{PacketTryWrapped, PacketWrapped};
 
-const FT_UT_OFFSET: i64 = 116444736010800000;
-const DEFAULT_TIME: i64 = 150842304000000000;
-const ZERO_TIME: i64 = 94354848000000000;
-const PERMANENT_TIME: i64 = 150841440000000000;
-
-#[derive(PartialEq, Eq, Copy, Clone)]
-pub struct ShroomTime(pub i64);
-
-impl Debug for ShroomTime {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0 {
-            DEFAULT_TIME => "DEFAULT_TIME".fmt(f),
-            ZERO_TIME => "ZERO_TIME".fmt(f),
-            PERMANENT_TIME => "PERMANENT_TIME".fmt(f),
-            _ => self.as_date_time().fmt(f),
-        }
-    }
-}
-
-impl TryFrom<i64> for ShroomTime {
-    type Error = NetError;
-
-    fn try_from(value: i64) -> Result<Self, Self::Error> {
-        //TODO check for validity
-        Ok(Self(value))
-    }
-}
-
-impl TryFrom<[u8; 8]> for ShroomTime {
-    type Error = NetError;
-
-    fn try_from(value: [u8; 8]) -> Result<Self, Self::Error> {
-        i64::from_le_bytes(value).try_into()
-    }
-}
-
-impl From<NaiveDateTime> for ShroomTime {
-    fn from(dt: NaiveDateTime) -> Self {
-        Self(dt.timestamp_millis() * 10_000 + FT_UT_OFFSET)
-    }
-}
-
-impl From<ShroomTime> for NaiveDateTime {
-    fn from(s: ShroomTime) -> Self {
-        s.as_date_time()
-    }
-}
-
-impl ShroomTime {
-    pub fn utc_now() -> Self {
-        Self::from(chrono::Utc::now().naive_utc())
-    }
-
-    pub fn shroom_default() -> Self {
-        Self(DEFAULT_TIME)
-    }
-
-    pub fn is_shroom_default(&self) -> bool {
-        self.0 == DEFAULT_TIME
-    }
-
-    pub fn zero() -> Self {
-        Self(ZERO_TIME)
-    }
-
-    pub fn is_zero(&self) -> bool {
-        self.0 == ZERO_TIME
-    }
-
-    pub fn permanent() -> Self {
-        Self(PERMANENT_TIME)
-    }
-
-    pub fn is_permanent(&self) -> bool {
-        self.0 == PERMANENT_TIME
-    }
-
-    pub fn as_date_time(&self) -> NaiveDateTime {
-        let n = self.0 - FT_UT_OFFSET;
-        NaiveDateTime::from_timestamp_millis(n / 10_000).unwrap()
-    }
-}
-
-impl PacketTryWrapped for ShroomTime {
-    type Inner = i64;
-
-    fn packet_into_inner(&self) -> Self::Inner {
-        self.0
-    }
-
-    fn packet_try_from(v: Self::Inner) -> NetResult<Self> {
-        Self::try_from(v)
-    }
-}
-
+/// Represents ticks from the win32 API `GetTickCount`
 #[derive(Debug)]
 pub struct Ticks(pub u32);
 
@@ -116,49 +22,101 @@ impl PacketWrapped for Ticks {
     }
 }
 
-#[derive(Debug)]
-pub struct ShroomExpiration(pub Option<ShroomTime>);
+/// Timestamps in the protocol
+pub type ShroomTime = FileTime;
 
-impl From<Option<NaiveDateTime>> for ShroomExpiration {
-    fn from(value: Option<NaiveDateTime>) -> Self {
-        let v: Option<ShroomTime> = value.map(|v| v.into());
-        v.into()
+/// Valid range for the time
+const SHROOM_TIME_MIN: FileTime = FileTime::from_i64(94354848000000000); // 1/1/1900
+const SHROOM_TIME_MAX: FileTime = FileTime::from_i64(150842304000000000); // 1/1/2079
+
+impl ShroomTime {
+    pub fn is_min(&self) -> bool {
+        self == &SHROOM_TIME_MIN
+    }
+
+    pub fn is_max(&self) -> bool {
+        self == &SHROOM_TIME_MAX
     }
 }
 
-impl From<Option<ShroomTime>> for ShroomExpiration {
+// Encode/Decode helper
+impl PacketTryWrapped for ShroomTime {
+    type Inner = i64;
+
+    fn packet_into_inner(&self) -> Self::Inner {
+        self.filetime()
+    }
+
+    fn packet_try_from(v: Self::Inner) -> NetResult<Self> {
+        // Negative timestamp is invalid
+        // TODO check min_max range?
+        if v < 0 {
+            return Err(crate::NetError::InvalidTimestamp(v));
+        }
+
+        Ok(ShroomTime::from_i64(v))
+    }
+}
+
+/// Expiration time, can be either None or a time
+#[derive(Debug, PartialEq, PartialOrd, Copy, Clone)]
+pub struct ShroomExpirationTime(pub Option<ShroomTime>);
+
+impl From<DateTime<Utc>> for ShroomExpirationTime {
+    fn from(value: DateTime<Utc>) -> Self {
+        Self(Some(value.into()))
+    }
+}
+
+impl From<Option<DateTime<Utc>>> for ShroomExpirationTime {
+    fn from(value: Option<DateTime<Utc>>) -> Self {
+        value.into()
+    }
+}
+
+impl From<ShroomTime> for ShroomExpirationTime {
+    fn from(value: ShroomTime) -> Self {
+        Self(Some(value))
+    }
+}
+
+impl From<Option<ShroomTime>> for ShroomExpirationTime {
     fn from(value: Option<ShroomTime>) -> Self {
         Self(value)
     }
 }
 
-impl ShroomExpiration {
+impl ShroomExpirationTime {
+    /// Create expiration from Shroom Time
     pub fn new(time: ShroomTime) -> Self {
         Self(Some(time))
     }
 
+    /// Never expires
     pub fn never() -> Self {
         Self(None)
     }
 
+    /// Create a delayed expiration from now + the duration
     pub fn delay(dur: chrono::Duration) -> Self {
-        Self::new((Utc::now() + dur).naive_utc().into())
+        (Utc::now() + dur).into()
     }
 }
 
-impl PacketWrapped for ShroomExpiration {
+impl PacketWrapped for ShroomExpirationTime {
     type Inner = ShroomTime;
 
     fn packet_into_inner(&self) -> Self::Inner {
-        self.0.unwrap_or(ShroomTime(0))
+        self.0.unwrap_or(SHROOM_TIME_MAX)
     }
 
     fn packet_from(v: Self::Inner) -> Self {
-        Self((v.0 != 0).then_some(v))
+        Self((v != SHROOM_TIME_MAX).then_some(v))
     }
 }
 
-#[derive(Clone, Copy)]
+/// Represents a Duration in ms with the backed type
+#[derive(Clone, Copy, PartialEq)]
 pub struct DurationMs<T>(pub T);
 
 impl<T: Debug> Debug for DurationMs<T> {
@@ -182,6 +140,7 @@ where
     }
 }
 
+/// Convert a `Duration` into this MS duration type
 impl<T> From<Duration> for DurationMs<T>
 where
     T: TryFrom<u128>,
@@ -192,6 +151,7 @@ where
     }
 }
 
+/// Convert a DurationMS into a `Duration`
 impl<T> From<DurationMs<T>> for Duration
 where
     T: Into<u64>,
@@ -201,29 +161,56 @@ where
     }
 }
 
+/// Duration ins ms, backed by u16
 pub type ShroomDurationMs16 = DurationMs<u16>;
+/// Duration in ms, backed by u32
 pub type ShroomDurationMs32 = DurationMs<u32>;
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use crate::packet::PacketWrapped;
+    use crate::packet::{
+        proto::tests::{enc_dec_test, enc_dec_test_all},
+        time::{ShroomDurationMs16, ShroomDurationMs32},
+    };
+    use quickcheck::{quickcheck, TestResult};
 
-    use super::{ShroomDurationMs32, ShroomTime};
+    use super::{DurationMs, ShroomExpirationTime, ShroomTime};
 
-    #[test]
-    fn conv() {
-        let _def = ShroomTime::shroom_default();
+    quickcheck! {
+        fn q_dur16(dur: Duration) -> TestResult {
+            if dur.as_millis() > u16::MAX as u128 {
+                return TestResult::discard();
+            }
+            enc_dec_test::<ShroomDurationMs16>(dur.into());
+            TestResult::passed()
+        }
+
+        fn q_dur32(dur: Duration) -> TestResult {
+            if dur.as_millis() > u32::MAX as u128 {
+                return TestResult::discard();
+            }
+            enc_dec_test::<ShroomDurationMs32>(dur.into());
+            TestResult::passed()
+        }
     }
 
     #[test]
     fn dur() {
-        const MS: u32 = 100;
-        let dur = Duration::from_millis(MS as u64);
+        enc_dec_test_all([
+            DurationMs::<u32>(1),
+            Duration::from_millis(100 as u64).into(),
+        ]);
+    }
 
-        let m_dur: ShroomDurationMs32 = dur.into();
-        assert_eq!(m_dur.packet_into_inner(), MS);
-        assert_eq!(dur, m_dur.into());
+    #[test]
+    fn expiration_time() {
+        enc_dec_test_all([
+            ShroomExpirationTime::never(),
+            ShroomExpirationTime(None),
+            ShroomExpirationTime::delay(chrono::Duration::seconds(1_000)),
+            ShroomExpirationTime::new(ShroomTime::now()),
+        ]);
     }
 }

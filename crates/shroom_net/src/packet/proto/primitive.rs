@@ -2,7 +2,7 @@ use array_init::try_array_init;
 use bytes::BufMut;
 use either::Either;
 
-use crate::{NetResult, PacketReader, PacketWriter};
+use crate::{NetResult, PacketReader, PacketWriter, SizeHint};
 
 use super::{DecodePacket, EncodePacket};
 
@@ -46,7 +46,8 @@ where
     }
 }
 
-pub struct OptionTail<T>(Option<T>);
+/// An optional tail, only read If there's enough data at the end available
+pub struct OptionTail<T>(pub Option<T>);
 
 impl<T> EncodePacket for OptionTail<T>
 where
@@ -102,31 +103,10 @@ macro_rules! impl_enc {
     };
 }
 
-/*
-macro_rules! impl_tracing {
-    ($ty:ty) => {
-        impl crate::proto::tracing::HasTraceInformation for $ty {
-            fn write_trace<TW: crate::proto::tracing::TracingWriter>(
-                tw: &mut TW,
-                v: Option<&Self>,
-            ) {
-                match v {
-                    Some(v) => {
-                        let tracing_val: crate::proto::tracing::TracingValue = v.into();
-                        crate::proto::tracing::TracingValue::write_trace(tw, Some(&tracing_val));
-                    }
-                    _ => {}
-                }
-            }
-        }
-    };
-}*/
-
 macro_rules! impl_dec_enc {
     ($ty:ty, $dec:path, $enc:path) => {
         impl_dec!($ty, $dec);
         impl_enc!($ty, $enc);
-        //impl_tracing!($ty);
     };
 }
 
@@ -158,17 +138,10 @@ impl<const N: usize, T: EncodePacket> EncodePacket for [T; N] {
         Ok(())
     }
 
-    const SIZE_HINT: Option<usize> = mul(T::SIZE_HINT, N);
+    const SIZE_HINT: Option<usize> = SizeHint(T::SIZE_HINT).mul_n(N).0;
 
     fn packet_len(&self) -> usize {
         self.iter().map(|v| v.packet_len()).sum()
-    }
-}
-
-const fn mul(sz: Option<usize>, n: usize) -> Option<usize> {
-    match sz {
-        Some(sz) => Some(sz * n),
-        _ => None,
     }
 }
 
@@ -209,7 +182,7 @@ mod tests {
     use crate::packet::proto::tests::enc_dec_test_all;
 
     #[test]
-    fn test_name() {
+    fn prim_num() {
         macro_rules! test_num {
             ($ty:ty) => {
                 let min = <$ty>::MIN;
@@ -223,5 +196,10 @@ mod tests {
         }
 
         test_num!(u8, i8, u16, i16, u32, i32, u64, i64, u128, i128, f32, f64,);
+    }
+
+    #[test]
+    fn bool() {
+        enc_dec_test_all([false, true]);
     }
 }
