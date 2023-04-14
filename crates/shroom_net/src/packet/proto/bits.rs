@@ -76,10 +76,6 @@ macro_rules! mark_shroom_packed_struct {
             type Inner = $crate::packet::ShroomPackedStruct<$packed_strct_ty>;
 
             fn packet_into_inner(&self) -> Self::Inner {
-                //TODO find a more efficient way to do this, cloning the struct is not good
-                // Maybe this should be a Transparent type instead of a wrapped
-                // with different into and from type
-                // in this case: into -> &T, from <- T
                 $crate::packet::ShroomPackedStruct(self.clone())
             }
 

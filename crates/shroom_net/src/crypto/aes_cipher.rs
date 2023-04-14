@@ -55,7 +55,6 @@ impl ShroomAESCipher {
         let n = buf.len();
 
         // Crypt first block
-        // TODO: hot path should be optimized as first buffer has no tail and crypt_blocks should get the size
         // Need proper benchmarking for that
         let (first_chunk, buf) = buf.split_at(FIRST_BLOCK_LEN.min(n));
         self.crypt_block(iv, first_chunk);
@@ -73,7 +72,6 @@ impl ShroomAESCipher {
 
 #[cfg(test)]
 mod tests {
-
     use crate::crypto::RoundKey;
 
     use super::ShroomAESCipher;

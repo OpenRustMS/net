@@ -7,8 +7,11 @@ use crate::{
 
 use super::handler::SessionHandleResult;
 
-//TODO get rid of async_trait for performance reasons here
+//TODO: either remove async_trait for performance reasons
+// or wait for async fn's in trait becoming stable
 
+/// Represents a response which can be sent with the session
+/// Returning a SessionHandleResult
 #[async_trait]
 pub trait Response {
     async fn send<Trans: SessionTransport + Send + Unpin>(
@@ -17,6 +20,7 @@ pub trait Response {
     ) -> NetResult<SessionHandleResult>;
 }
 
+/// Unit is essentially a No-Op
 #[async_trait]
 impl Response for () {
     async fn send<Trans: SessionTransport + Send + Unpin>(
@@ -27,6 +31,7 @@ impl Response for () {
     }
 }
 
+/// Sending the value Some value If It's set
 #[async_trait]
 impl<Resp: Response + Send> Response for Option<Resp> {
     async fn send<Trans: SessionTransport + Send + Unpin>(
@@ -40,6 +45,7 @@ impl<Resp: Response + Send> Response for Option<Resp> {
     }
 }
 
+/// Sending all Responses in this `Vec`
 #[async_trait]
 impl<Resp: Response + Send> Response for Vec<Resp> {
     async fn send<Trans: SessionTransport + Send + Unpin>(
@@ -53,21 +59,34 @@ impl<Resp: Response + Send> Response for Vec<Resp> {
     }
 }
 
-pub struct ResponsePacket<Op, T> {
-    pub op: Op,
+/// Represents a Response Packet, which stores the Data and the Opcode
+pub struct ResponsePacket<T> {
+    pub op: u16,
     pub data: T,
 }
 
-impl<Op, T> ResponsePacket<Op, T> {
-    pub fn new(op: Op, data: T) -> Self {
-        Self { op, data }
+/// Normal Packet with Encode and Opcode
+impl<T: EncodePacket + HasOpcode> From<T> for ResponsePacket<T> {
+    fn from(value: T) -> Self {
+        ResponsePacket::new(T::OPCODE, value)
     }
 }
 
+impl<T> ResponsePacket<T> {
+    /// Creates a new response packet from the data `T` which is supposed to implement EncodePacket
+    /// and the given Opcode
+    pub fn new(op: impl NetOpcode, data: T) -> Self {
+        Self {
+            op: op.into(),
+            data,
+        }
+    }
+}
+
+/// Simply send the packet with the opcode over the session
 #[async_trait]
-impl<Op, T> Response for ResponsePacket<Op, T>
+impl<T> Response for ResponsePacket<T>
 where
-    Op: NetOpcode + Send,
     T: EncodePacket + Send,
 {
     async fn send<Trans: SessionTransport + Send + Unpin>(
@@ -76,26 +95,6 @@ where
     ) -> NetResult<SessionHandleResult> {
         session.send_packet_with_opcode(self.op, self.data).await?;
         Ok(SessionHandleResult::Ok)
-    }
-}
-
-pub trait PacketOpcodeExt: EncodePacket {
-    fn into_response<Op: NetOpcode>(self, opcode: Op) -> ResponsePacket<Op, Self> {
-        ResponsePacket::new(opcode, self)
-    }
-}
-
-impl<T: EncodePacket> PacketOpcodeExt for T {}
-
-pub trait IntoResponse {
-    type Resp: Response + Send;
-
-    fn into_response(self) -> Self::Resp;
-}
-
-impl<T: EncodePacket + HasOpcode> From<T> for ResponsePacket<T::Opcode, T> {
-    fn from(value: T) -> Self {
-        ResponsePacket::new(T::OPCODE, value)
     }
 }
 
@@ -117,6 +116,7 @@ where
     }
 }
 
+/// Response which does nothing but signals that a Pong was handled via `SessionHandleResult`
 pub struct PongResponse;
 
 #[async_trait]
@@ -129,11 +129,59 @@ impl Response for PongResponse {
     }
 }
 
-impl<T> IntoResponse for T
-where
-    T: Response + Send,
-{
-    type Resp = T;
+/// Helper trait which allows to transform and encode-able type
+/// and an Opcode into a Response Packet
+pub trait PacketOpcodeExt: EncodePacket {
+    fn with_opcode<Op: NetOpcode>(self, opcode: Op) -> ResponsePacket<Self> {
+        ResponsePacket::new(opcode, self)
+    }
+}
+
+impl<T: EncodePacket> PacketOpcodeExt for T {}
+
+///  Provides conversion from types into actual Responses
+pub trait IntoResponse {
+    type Resp: Response + Send;
+
+    /// Converts this type into an actual response
+    fn into_response(self) -> Self::Resp;
+}
+
+
+impl IntoResponse for () {
+    type Resp = ();
+
+    fn into_response(self) -> Self::Resp {
+        ()
+    }
+}
+
+impl<T: IntoResponse> IntoResponse for Option<T> {
+    type Resp = Option<T::Resp>;
+
+    fn into_response(self) -> Self::Resp {
+        self.map(|r| r.into_response())
+    }
+}
+
+impl<T: EncodePacket + HasOpcode + Send> IntoResponse for T {
+    type Resp  = ResponsePacket<T>;
+
+    fn into_response(self) -> Self::Resp {
+        ResponsePacket::new(T::OPCODE, self)
+    }
+}
+
+impl<T: EncodePacket + Send> IntoResponse for ResponsePacket<T> {
+    type Resp = ResponsePacket<T>;
+
+    fn into_response(self) -> Self::Resp {
+        self
+    }
+}
+
+impl<T: EncodePacket + Send> IntoResponse for Vec<ResponsePacket<T>> {
+    type Resp = Vec<ResponsePacket<T>>;
 
     fn into_response(self) -> Self::Resp {
         self
@@ -142,7 +190,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
     use super::{IntoResponse, ResponsePacket};
 
     fn check_is_into_response<T>() -> bool
@@ -156,7 +203,7 @@ mod tests {
     fn name() {
         check_is_into_response::<()>();
         check_is_into_response::<Option<()>>();
-        check_is_into_response::<ResponsePacket<u16, ()>>();
-        check_is_into_response::<Vec<ResponsePacket<u16, ()>>>();
+        check_is_into_response::<ResponsePacket<()>>();
+        check_is_into_response::<Vec<ResponsePacket<()>>>();
     }
 }
