@@ -26,8 +26,8 @@ impl PacketWrapped for Ticks {
 pub type ShroomTime = FileTime;
 
 /// Valid range for the time
-const SHROOM_TIME_MIN: FileTime = FileTime::from_i64(94354848000000000); // 1/1/1900
-const SHROOM_TIME_MAX: FileTime = FileTime::from_i64(150842304000000000); // 1/1/2079
+pub const SHROOM_TIME_MIN: FileTime = FileTime::from_i64(94354848000000000); // 1/1/1900
+pub const SHROOM_TIME_MAX: FileTime = FileTime::from_i64(150842304000000000); // 1/1/2079
 
 impl ShroomTime {
     pub fn is_min(&self) -> bool {
@@ -36,6 +36,14 @@ impl ShroomTime {
 
     pub fn is_max(&self) -> bool {
         self == &SHROOM_TIME_MAX
+    }
+
+    pub const fn max() -> Self {
+        SHROOM_TIME_MAX
+    }
+
+    pub const fn min() -> Self {
+        SHROOM_TIME_MIN
     }
 }
 
