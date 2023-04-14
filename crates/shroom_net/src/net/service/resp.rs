@@ -150,8 +150,7 @@ pub trait IntoResponse {
 impl IntoResponse for () {
     type Resp = ();
 
-    fn into_response(self) -> Self::Resp {
-    }
+    fn into_response(self) -> Self::Resp {}
 }
 
 impl<T: IntoResponse> IntoResponse for Option<T> {
@@ -167,6 +166,16 @@ impl<T: EncodePacket + HasOpcode + Send> IntoResponse for T {
 
     fn into_response(self) -> Self::Resp {
         ResponsePacket::new(T::OPCODE, self)
+    }
+}
+
+impl<T: EncodePacket + HasOpcode + Send> IntoResponse for Vec<T> {
+    type Resp = Vec<ResponsePacket<T>>;
+
+    fn into_response(self) -> Self::Resp {
+        self.into_iter()
+            .map(|p| ResponsePacket::new(T::OPCODE, p))
+            .collect()
     }
 }
 
