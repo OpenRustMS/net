@@ -1,25 +1,21 @@
 use std::{fmt::Debug, io, marker::PhantomData, sync::Arc, time::Duration};
 
 use futures::{Stream, StreamExt};
-use tokio::{
-    net::{TcpListener, TcpStream, ToSocketAddrs},
-    time::Interval,
-};
+use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
+use tokio_stream::wrappers::TcpListenerStream;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     crypto::SharedCryptoContext,
     net::{codec::handshake::Handshake, service::handler::SessionHandleResult, ShroomSession},
     util::framed_pipe::{framed_pipe, FramedPipeReceiver, FramedPipeSender},
-    NetError, PacketBuffer,
+    NetError, PacketBuffer, ShroomPacket,
 };
 
 use super::{
-    handler::{MakeServerSessionHandler, ShroomServerSessionHandler, ShroomSessionHandler},
+    handler::{MakeServerSessionHandler, ShroomSessionHandler},
     HandshakeGenerator,
 };
-
-pub const DEFAULT_MIGRATE_DELAY: Duration = Duration::from_millis(7500);
 
 #[derive(Debug, Clone)]
 pub struct SharedSessionHandle {
@@ -28,12 +24,14 @@ pub struct SharedSessionHandle {
 }
 
 impl SharedSessionHandle {
-    pub fn try_send_buf(&mut self, pkt_buf: &PacketBuffer) -> anyhow::Result<()> {
+    /// Attempt to send a packet buffer to the session
+    pub fn try_send_pkt_buf(&mut self, pkt_buf: &PacketBuffer) -> anyhow::Result<()> {
         Ok(self.tx.try_send_all(pkt_buf.packets())?)
     }
 
-    pub fn try_send(&mut self, item: &[u8]) -> anyhow::Result<()> {
-        Ok(self.tx.try_send(item)?)
+    /// Attempt to send a single packet to the buffer
+    pub fn try_send_pkt(&mut self, pkt: impl AsRef<[u8]>) -> anyhow::Result<()> {
+        Ok(self.tx.try_send(pkt)?)
     }
 }
 
@@ -60,56 +58,54 @@ impl<H> ShroomSessionHandle<H>
 where
     H: ShroomSessionHandler + Send,
 {
-    pub fn is_running(&self) -> bool {
+    /// Check whether the session is still active
+    pub fn is_active(&self) -> bool {
         !self.handle.is_finished()
     }
 }
 
 pub struct ShroomServerSession<H: ShroomSessionHandler> {
+    cfg: Arc<ShroomServerConfig>,
     session: ShroomSession<H::Transport>,
-    migrate_delay: Duration,
     handler: H,
     session_handle: SharedSessionHandle,
     session_rx: FramedPipeReceiver,
     pending_ping: bool,
-    ping_interval: Interval,
 }
 
 impl<H> ShroomServerSession<H>
 where
-    H: ShroomServerSessionHandler + Send,
+    H: ShroomSessionHandler + Send,
     H::Transport: Unpin,
 {
     pub fn new(
+        cfg: Arc<ShroomServerConfig>,
         session: ShroomSession<H::Transport>,
-        migrate_delay: Duration,
         handler: H,
         session_handle: SharedSessionHandle,
         session_rx: FramedPipeReceiver,
     ) -> Self {
         Self {
+            cfg,
             session,
-            migrate_delay,
             handler,
             session_handle,
             session_rx,
             pending_ping: false,
-            ping_interval: tokio::time::interval(H::get_ping_interval()),
         }
     }
 
-    pub async fn migrate(mut self) -> Result<(), H::Error> {
+    async fn migrate(mut self) -> Result<(), H::Error> {
         log::trace!("Session migrated");
         self.handler.finish(true).await?;
         // Socket has to be kept open cause the client doesn't support
         // reading a packet when the socket is closed
-        // TODO: make this configurable
-        tokio::time::sleep(self.migrate_delay).await;
+        tokio::time::sleep(self.cfg.migrate_delay).await;
         self.session.close().await?;
         Ok(())
     }
 
-    pub async fn handle_ping_tick(&mut self) -> Result<(), H::Error> {
+    async fn handle_ping_tick(&mut self) -> Result<(), H::Error> {
         // Check if previous ping was responded
         if self.pending_ping {
             log::trace!("Ping Timeout");
@@ -119,8 +115,9 @@ where
         // Elsewise send a new ping packet
         log::trace!("Sending ping...");
         self.pending_ping = true;
-        let ping_packet = self.handler.get_ping_packet()?;
-        self.session.send_raw_packet(ping_packet.as_ref()).await?;
+        self.session
+            .send_raw_packet(self.cfg.ping_packet.as_ref())
+            .await?;
         Ok(())
     }
 
@@ -130,16 +127,14 @@ where
     }
 
     pub async fn exec(mut self) -> Result<(), H::Error> {
-        self.ping_interval.tick().await;
+        let mut ping_interval = tokio::time::interval(self.cfg.ping_interval);
 
         loop {
-            //TODO might need some micro-optimization to ensure no future gets stalled
             tokio::select! {
                 biased;
                 // Handle next incoming packet
                 p = self.session.read_packet() => {
-                    let p = p?;
-                    let res = self.handler.handle_packet(p, &mut self.session).await?;
+                    let res = self.handler.handle_packet(p?, &mut self.session).await?;
                     // Handling the handle result
                     match res {
                         SessionHandleResult::Migrate => {
@@ -151,7 +146,7 @@ where
                         SessionHandleResult::Ok => ()
                     }
                 },
-                _ = self.ping_interval.tick() => {
+                _ = ping_interval.tick() => {
                     self.handle_ping_tick().await?;
                 },
                 //Handle external Session packets
@@ -179,14 +174,22 @@ where
     }
 }
 
+/// Config for a server
 #[derive(Debug)]
 pub struct ShroomServerConfig {
     /// Crypto context which contains the keys
     pub crypto_ctx: SharedCryptoContext,
     /// Duration for how long the transport is kept alive after receiving a Migration Response
     pub migrate_delay: Duration,
+    /// Ping packet
+    pub ping_packet: ShroomPacket,
+    /// Ping interval
+    pub ping_interval: Duration,
 }
 
+/// Server which can host multiple Session
+/// `MH` is used to create the handler
+/// `H` is the Handshake generator
 #[derive(Debug)]
 pub struct ShroomServer<MH, H>
 where
@@ -204,6 +207,7 @@ where
     MH: MakeServerSessionHandler,
     MH::Handler: Send,
 {
+    /// Creates a new server with the given config
     pub fn new(cfg: ShroomServerConfig, handshake_gen: H, make_handler: MH) -> Self {
         Self {
             cfg: Arc::new(cfg),
@@ -213,10 +217,12 @@ where
         }
     }
 
+    /// Remove all closed sesison handles
     fn remove_closed_handles(&mut self) {
-        self.handles.retain(|handle| handle.is_running());
+        self.handles.retain(|handle| handle.is_active());
     }
 
+    /// Add a handle
     fn add_handle(&mut self, handle: ShroomSessionHandle<MH::Handler>) {
         // TODO: there should be an upper limit for active connections
 
@@ -227,82 +233,104 @@ where
 
 impl<MH, H> ShroomServer<MH, H>
 where
+    H: HandshakeGenerator,
     MH: MakeServerSessionHandler + Send + Clone + 'static,
     MH::Error: From<io::Error> + Send + 'static,
     MH::Handler: Send + 'static,
     MH::Transport: Send + Unpin + 'static,
-    H: HandshakeGenerator,
 {
-    pub fn spawn(
+    /// Spawn a incoming `io` Transport
+    fn spawn(
         io: MH::Transport,
         cfg: Arc<ShroomServerConfig>,
         mut mk: MH,
         handshake: Handshake,
-    ) -> Result<ShroomSessionHandle<MH::Handler>, <MH::Handler as ShroomSessionHandler>::Error>
-    {
+    ) -> ShroomSessionHandle<MH::Handler> {
+        // Spawn the future
         let handle = tokio::spawn(async move {
+            // Using a block here so we can capture the result and log It later
             let res = async move {
+                // Initialize the session with the handshake
                 let mut session =
                     ShroomSession::initialize_server_session(io, cfg.crypto_ctx.clone(), handshake)
                         .await?;
 
+                // Create the shared session handle
                 let (session_handle, session_rx) = SharedSessionHandle::new();
+
+                // Create the session handler
                 let handler = mk
                     .make_handler(&mut session, session_handle.clone())
                     .await?;
 
-                let res = ShroomServerSession::new(
-                    session,
-                    cfg.migrate_delay,
-                    handler,
-                    session_handle,
-                    session_rx,
-                )
-                .exec()
-                .await;
+                // Create the session and execute It
+                let server_session =
+                    ShroomServerSession::new(cfg, session, handler, session_handle, session_rx);
 
-                if let Err(ref err) = res {
-                    log::info!("Session exited with error: {:?}", err);
-                }
-
-                Ok(())
+                server_session.exec().await
             };
 
+            // Await the block
             let res = res.await;
+            // Print the error If there's one
             if let Err(ref err) = res {
                 log::error!("Session error: {:?}", err);
             }
 
+            // Forward the result
             res
         });
 
-        Ok(ShroomSessionHandle {
+        ShroomSessionHandle {
             handle,
             _handler: PhantomData,
-        })
+        }
     }
 
-    fn handle_incoming(&mut self, io: MH::Transport) -> Result<(), MH::Error>
+    /// Handles an incoming `io` Transport
+    fn handle_incoming(&mut self, io: MH::Transport)
     where
         MH: Send + Clone + 'static,
         MH::Error: From<io::Error> + Send + 'static,
         MH::Handler: Send + 'static,
         MH::Transport: Send + Unpin + 'static,
     {
+        // Generate the handshake here
         let handshake = self.handshake_gen.generate_handshake();
-        let handle = Self::spawn(io, self.cfg.clone(), self.make_handler.clone(), handshake)?;
+        // Spawn the connection
+        let handle = Self::spawn(io, self.cfg.clone(), self.make_handler.clone(), handshake);
+        // Add the handle to the interal collection
         self.add_handle(handle);
-
-        Ok(())
     }
 
+    fn is_connection_error(e: &io::Error) -> bool {
+        matches!(
+            e.kind(),
+            io::ErrorKind::ConnectionRefused
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::ConnectionReset
+        )
+    }
+
+    /// Run the server on an incoming Stream of Transports
+    /// for example a `TcpListenerStream`
     pub async fn run<S>(&mut self, mut io: S) -> Result<(), MH::Error>
     where
         S: Stream<Item = std::io::Result<MH::Transport>> + Unpin,
     {
         while let Some(io) = io.next().await {
-            let io = io.map_err(NetError::IO)?;
-            self.handle_incoming(io)?;
+            match io {
+                // Handle connection
+                Ok(io) => self.handle_incoming(io),
+                // Filter connection related errors
+                Err(err) if Self::is_connection_error(&err) => {
+                    log::trace!("Server Connection error: {}", err);
+                }
+                // If something is wrong with the stream cancel It here
+                Err(err) => {
+                    return Err(err.into());
+                }
+            }
         }
 
         Ok(())
@@ -312,18 +340,13 @@ where
 impl<MH, H> ShroomServer<MH, H>
 where
     H: HandshakeGenerator,
-    MH::Error: From<io::Error> + Send + 'static,
-    MH::Handler: Send + 'static,
-    MH::Transport: Send + Unpin + 'static,
     MH: MakeServerSessionHandler<Transport = TcpStream> + Send + Clone + 'static,
+    MH::Handler: Send + 'static,
     MH::Error: From<io::Error> + Send + 'static,
 {
+    /// Serve with the given `addr` via Tcp as Transprot
     pub async fn serve_tcp(&mut self, addr: impl ToSocketAddrs) -> Result<(), MH::Error> {
         let listener = TcpListener::bind(addr).await?;
-
-        loop {
-            let (io, _) = listener.accept().await?;
-            self.handle_incoming(io)?;
-        }
+        self.run(TcpListenerStream::new(listener)).await
     }
 }

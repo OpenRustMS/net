@@ -3,10 +3,16 @@ pub mod resp;
 pub mod server_sess;
 pub mod session_set;
 
+use std::time::Duration;
+
 use arrayvec::ArrayString;
 
-use crate::crypto::RoundKey;
+use crate::{crypto::RoundKey};
 use super::codec::handshake::{Handshake, LocaleCode};
+
+
+
+pub const DEFAULT_MIGRATE_DELAY: Duration = Duration::from_millis(7500);
 
 /// Handshake generator, to generate a handshake
 pub trait HandshakeGenerator {

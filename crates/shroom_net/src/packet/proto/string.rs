@@ -90,15 +90,15 @@ impl<const N: usize> PacketTryWrapped for FixedPacketString<N> {
     type Inner = [u8; N];
 
     fn packet_into_inner(&self) -> Self::Inner {
-        //TODO maybe this can be made more efficient
+        // Write the data padded by zero up to N
         let mut buf = [0; N];
-        for (i, b) in self.0.as_bytes().iter().enumerate() {
-            buf[i] = *b;
-        }
+        let b = &self.0;
+        buf[..b.len()].copy_from_slice(b.as_bytes());
         buf
     }
 
     fn packet_try_from(v: Self::Inner) -> NetResult<Self> {
+        // Convert the array to the string
         Ok(Self(from_c_str(&v)?))
     }
 }

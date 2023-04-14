@@ -1,4 +1,4 @@
-use std::{fmt::Debug, time::Duration};
+use std::fmt::Debug;
 
 use async_trait::async_trait;
 use futures::{future, Future};
@@ -23,6 +23,22 @@ pub enum SessionHandleResult {
     Pong,
 }
 
+/// Handler creator
+#[async_trait]
+pub trait MakeServerSessionHandler {
+    type Transport: SessionTransport;
+    type Error: From<NetError> + Debug;
+    type Handler: ShroomSessionHandler<Transport = Self::Transport, Error = Self::Error>;
+
+    /// Create a new handler for the given `session`
+    /// and the shared session `handle`
+    async fn make_handler(
+        &mut self,
+        sess: &mut ShroomSession<Self::Transport>,
+        handle: SharedSessionHandle,
+    ) -> Result<Self::Handler, Self::Error>;
+}
+
 /// Session handler trait, which used to handle packets and handle messages
 #[async_trait]
 pub trait ShroomSessionHandler: Sized {
@@ -41,7 +57,7 @@ pub trait ShroomSessionHandler: Sized {
     async fn handle_msg(
         &mut self,
         session: &mut ShroomSession<Self::Transport>,
-        msg: Self::Msg
+        msg: Self::Msg,
     ) -> Result<(), Self::Error>;
 
     /// Poll a message to archive an actor like message passing
@@ -55,29 +71,6 @@ pub trait ShroomSessionHandler: Sized {
         Ok(())
     }
 }
-
-/// Session factory
-#[async_trait]
-pub trait MakeServerSessionHandler {
-    type Transport: SessionTransport;
-    type Error: From<NetError> + Debug;
-    type Handler: ShroomServerSessionHandler<Transport = Self::Transport, Error = Self::Error>;
-
-    /// Create a new handler for the given `session`
-    /// and the shared session `handle`
-    async fn make_handler(
-        &mut self,
-        sess: &mut ShroomSession<Self::Transport>,
-        handle: SharedSessionHandle,
-    ) -> Result<Self::Handler, Self::Error>;
-}
-
-#[async_trait]
-pub trait ShroomServerSessionHandler: ShroomSessionHandler {
-    fn get_ping_interval() -> Duration;
-    fn get_ping_packet(&mut self) -> Result<ShroomPacket, Self::Error>;
-}
-
 
 /// Call a the specified handler function `f` and process the returned response
 pub async fn call_handler_fn<'session, F, Req, Fut, Trans, State, Resp, Err>(
@@ -103,7 +96,7 @@ where
 /// which routes the packet to the matching handler
 /// by reading the Opcode and checking It against the `OPCODE` from the `HasOpcode` Trait
 /// Example:
-/// 
+///
 /// shroom_router_fn!(
 ///     handle, // name
 ///     State,  // State type
@@ -132,12 +125,13 @@ mod tests {
     use std::io;
 
     use crate::{
+        crypto::SharedCryptoContext,
         net::{
             service::{BasicHandshakeGenerator, HandshakeGenerator},
             ShroomSession,
         },
         opcode::WithOpcode,
-        PacketReader, PacketWriter, crypto::SharedCryptoContext,
+        PacketReader, PacketWriter,
     };
 
     use super::SessionHandleResult;

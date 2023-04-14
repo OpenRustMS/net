@@ -24,7 +24,7 @@ geo = "0.24.0"
 paste = "1.0.12"
 rand = "0.8.5"
 tokio = { version = "1.17.0", features = ["full"] }
-tokio-stream = "0.1.8"
+tokio-stream = { version = "0.1.8", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec"] }
 cipher = { version = "0.4.3", features = ["block-padding"] }
 aes = "0.8.1"

@@ -7,8 +7,6 @@ use syn::{
     parse_quote, GenericParam, Generics, Ident, Lifetime, LifetimeDef, Type, TypeParamBound,
 };
 
-// TODO: const trait when stable + add a check to ensure only of eiter, if and size attributes are used
-
 /// Conditional Meta data, the field to check and the 'cond'ition function to call
 #[derive(FromMeta, Debug)]
 struct Cond {
@@ -48,8 +46,6 @@ struct PacketField {
     // Size for `DecodePacketSized` + `EncodePacketSized`
     size: Option<Ident>,
 }
-
-// TODO verify
 
 impl PacketField {
     // Get conditional data If either
