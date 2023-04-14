@@ -18,6 +18,14 @@ pub const DEFAULT_IG_CONTEXT: IgContext = IgContext {
 };
 
 impl IgContext {
+    /// Creates a new IgContext
+    pub fn new(shuffle_key: ShuffleKey, seed: IgKey) -> Self {
+        Self {
+            shuffle_key,
+            seed
+        }
+    }
+
     /// Creates a new hasher with this context
     pub fn hasher(&self) -> IgHasher<'_> {
         IgHasher {
