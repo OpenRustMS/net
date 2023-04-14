@@ -60,16 +60,16 @@ where
 macro_rules! packet_opcode {
     ($packet_ty:ty, $op:path, $ty:ty) => {
         impl $crate::HasOpcode for $packet_ty {
-            type OP = $ty;
+            type Opcode = $ty;
 
-            const OPCODE: Self::OP = $op;
+            const OPCODE: Self::Opcode = $op;
         }
     };
     ($packet_ty:ty, $ty:ident::$op:ident) => {
         impl $crate::HasOpcode for $packet_ty {
-            type OP = $ty;
+            type Opcode = $ty;
 
-            const OPCODE: Self::OP = $ty::$op;
+            const OPCODE: Self::Opcode = $ty::$op;
         }
     };
 }
