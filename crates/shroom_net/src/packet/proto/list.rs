@@ -59,6 +59,12 @@ impl<const Z: bool, I, T> Default for ShroomBaseIndexList<Z, I, T> {
     }
 }
 
+impl<const Z: bool, I, T> FromIterator<(I, T)> for ShroomBaseIndexList<Z, I, T> {
+    fn from_iter<ITER: IntoIterator<Item = (I, T)>>(iter: ITER) -> Self {
+        Self(FromIterator::from_iter(iter))
+    }
+}
+
 /// Get the terminator based on the Z bool
 const fn get_term<I: ShroomListIndex>(z: bool) -> I {
     if z {
@@ -130,8 +136,8 @@ pub struct ShroomList<L, T> {
     pub _index: PhantomData<L>,
 }
 
-impl<I, E> FromIterator<E> for ShroomList<I, E> {
-    fn from_iter<T: IntoIterator<Item = E>>(iter: T) -> Self {
+impl<L, T> FromIterator<T> for ShroomList<L, T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self {
             items: FromIterator::from_iter(iter),
             _index: PhantomData,
@@ -139,7 +145,7 @@ impl<I, E> FromIterator<E> for ShroomList<I, E> {
     }
 }
 
-impl<I, T> Default for ShroomList<I, T> {
+impl<L, T> Default for ShroomList<L, T> {
     fn default() -> Self {
         Self {
             items: Vec::default(),
@@ -148,7 +154,7 @@ impl<I, T> Default for ShroomList<I, T> {
     }
 }
 
-impl<I, T> From<Vec<T>> for ShroomList<I, T> {
+impl<L, T> From<Vec<T>> for ShroomList<L, T> {
     fn from(items: Vec<T>) -> Self {
         Self {
             items,
@@ -157,7 +163,7 @@ impl<I, T> From<Vec<T>> for ShroomList<I, T> {
     }
 }
 
-impl<I, T> Debug for ShroomList<I, T>
+impl<L, T> Debug for ShroomList<L, T>
 where
     T: Debug,
 {
@@ -168,28 +174,28 @@ where
     }
 }
 
-impl<'de, I, T> DecodePacket<'de> for ShroomList<I, T>
+impl<'de, L, T> DecodePacket<'de> for ShroomList<L, T>
 where
-    I: ShroomListLen,
+    L: ShroomListLen,
     T: DecodePacket<'de>,
 {
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         // Read the length then decode all items
-        let n = I::decode_packet(pr)?;
+        let n = L::decode_packet(pr)?;
         let n = n.to_len();
 
         Ok(T::decode_packet_n(pr, n)?.into())
     }
 }
 
-impl<I, T> EncodePacket for ShroomList<I, T>
+impl<L, T> EncodePacket for ShroomList<L, T>
 where
-    I: ShroomListLen,
+    L: ShroomListLen,
     T: EncodePacket,
 {
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         // Encode the length followed by all items
-        I::from_len(self.len()).encode_packet(pw)?;
+        L::from_len(self.len()).encode_packet(pw)?;
         T::encode_packet_n(self, pw)?;
 
         Ok(())
@@ -198,7 +204,7 @@ where
     const SIZE_HINT: Option<usize> = None;
 
     fn packet_len(&self) -> usize {
-        I::SIZE_HINT.unwrap() + self.items.iter().map(|v| v.packet_len()).sum::<usize>()
+        L::SIZE_HINT.unwrap() + self.items.iter().map(|v| v.packet_len()).sum::<usize>()
     }
 }
 
