@@ -1,11 +1,11 @@
 use super::wrapped::PacketWrapped;
-use bitflags::BitFlags;
+use bitflags::Flags;
 use packed_struct::PackedStruct;
 
 /// Wrapper around any BitFlags type, which allows En/Decoding of this type
-pub struct ShroomBitFlags<T: BitFlags>(pub T);
+pub struct ShroomBitFlags<T: Flags>(pub T);
 
-impl<T: BitFlags> ShroomBitFlags<T> {
+impl<T: Flags> ShroomBitFlags<T> {
     pub fn new(inner: T) -> Self {
         Self(inner)
     }
@@ -17,7 +17,7 @@ impl<T: BitFlags> ShroomBitFlags<T> {
 
 impl<T> PacketWrapped for ShroomBitFlags<T>
 where
-    T: BitFlags,
+    T: Flags,
 {
     type Inner = T::Bits;
 
