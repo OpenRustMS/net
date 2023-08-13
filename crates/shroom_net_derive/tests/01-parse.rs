@@ -52,7 +52,7 @@ fn check_name_even(name: &str) -> bool {
 #[derive(ShroomPacket, Debug, PartialEq, Eq)]
 pub struct Packet4<'a, T> {
     name: &'a str,
-    #[pkt(if(field = "name", cond = "check_name_even"))]
+   #[pkt(check(field = "name", cond = "check_name_even"))]
     bitmask: CondOption<u16>,
     val: T,
 }

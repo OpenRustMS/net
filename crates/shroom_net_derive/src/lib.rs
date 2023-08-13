@@ -4,7 +4,7 @@ use darling::{
 };
 use proc_macro2::{Span, TokenStream};
 use syn::{
-    parse_quote, GenericParam, Generics, Ident, Lifetime, LifetimeDef, Type, TypeParamBound,
+    parse_quote, GenericParam, Generics, Ident, Lifetime, Type, TypeParamBound, LifetimeParam,
 };
 
 /// Conditional Meta data, the field to check and the 'cond'ition function to call
@@ -38,9 +38,8 @@ struct PacketField {
     ident: Option<Ident>,
     // Type
     ty: Type,
-    // If conditional
-    #[darling(rename = "if")]
-    _if: Option<Cond>,
+    // Check conditional
+    check: Option<Cond>,
     // Either conditional
     either: Option<Cond>,
     // Size for `DecodePacketSized` + `EncodePacketSized`
@@ -50,7 +49,7 @@ struct PacketField {
 impl PacketField {
     // Get conditional data If either
     pub fn get_cond(&self) -> Option<&Cond> {
-        self._if.as_ref().or(self.either.as_ref())
+        self.check.as_ref().or(self.either.as_ref())
     }
 
     // Get the encode expression for this field
@@ -268,12 +267,12 @@ fn find_or_add_de_lifetime(generics: &mut Generics) -> &Lifetime {
         // Else insert new lifetime with the name 'de
         None => {
             let lf = Lifetime::new("'de", Span::call_site());
-            let ty_lf: GenericParam = LifetimeDef::new(lf).into();
+            let ty_lf: GenericParam = LifetimeParam::new(lf).into();
             generics.params.push(ty_lf);
             generics.params.last().expect("Last param must exist")
         }
     }
-    .as_lifetime_def()
+    .as_lifetime_param()
     .expect("must be Lifetime")
     .lifetime
 }
