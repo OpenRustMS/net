@@ -88,13 +88,13 @@ macro_rules! shroom_packet_enum {
 
             }
 
-            const SIZE_HINT: Option<usize> = None;
+            const SIZE_HINT: $crate::SizeHint = $crate::SizeHint::NONE;
 
             fn packet_len(&self) -> usize {
                 match self {
                     $(
                         Self::$Variant(v) => {
-                            <$T>::SIZE_HINT.unwrap() + v.packet_len()
+                            <$T>::SIZE_HINT.0.expect("enum size") + v.packet_len()
                         }
                     ),*
                 }

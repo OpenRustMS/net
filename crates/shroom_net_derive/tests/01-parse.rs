@@ -95,8 +95,8 @@ macro_rules! test_encode_decode {
 }
 
 fn main() {
-    assert_eq!(Packet::SIZE_HINT, Some(3));
-    assert_eq!(Packet3::SIZE_HINT, None);
+    assert_eq!(Packet::SIZE_HINT.0, Some(3));
+    assert_eq!(Packet3::SIZE_HINT.0, None);
 
     test_encode_decode!(Packet3 {
         name: "aaa",

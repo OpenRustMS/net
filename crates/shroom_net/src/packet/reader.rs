@@ -25,6 +25,11 @@ impl<'a> PacketReader<'a> {
         self.inner.into_inner()
     }
 
+    /// Gets a reference to the data
+    pub fn get_ref(&self) -> &[u8] {
+        self.inner.get_ref()
+    }
+
     /// Helper function to check if there's enough bytes to read `T`
     /// the size `n` still has to be passed as the T is just used for the Error context
     fn check_size_typed<T>(&self, n: usize) -> NetResult<()> {
@@ -59,8 +64,13 @@ impl<'a> PacketReader<'a> {
 
     ///Get the reamining slice
     pub fn remaining_slice(&self) -> &'a [u8] {
-        let p = self.inner.position() as usize;
-        &self.inner.get_ref()[p..]
+        let len = self.inner.position().min(self.inner.get_ref().len() as u64);
+        &self.inner.get_ref()[(len as usize)..]
+    }
+
+    /// Gets the remaining bytes
+    pub fn remaining(&self) -> usize {
+        self.inner.remaining()
     }
 
     /// Create a sub reader based on this slice
@@ -166,5 +176,19 @@ impl<'a> PacketReader<'a> {
 
     pub fn read_array<const N: usize>(&mut self) -> NetResult<[u8; N]> {
         Ok(self.read_bytes_inner::<[u8; N]>(N)?.try_into().unwrap())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn remaining() {
+        let b = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let mut r = super::PacketReader::new(&b);
+
+        r.read_u8().unwrap();
+        assert_eq!(r.remaining(), 9);
+        assert_eq!(r.remaining_slice(), &b[1..]);
     }
 }

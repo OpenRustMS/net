@@ -1,4 +1,4 @@
-use crate::{error::NetError, DecodePacket, EncodePacket, NetResult};
+use crate::{error::NetError, DecodePacket, EncodePacket, NetResult, SizeHint};
 
 
 /// Opcode trait which allows conversion from and to the opcode from an `u16`
@@ -34,7 +34,7 @@ impl<const OP: u16, T> EncodePacket for WithOpcode<OP, T>
 where
     T: EncodePacket,
 {
-    const SIZE_HINT: Option<usize> = T::SIZE_HINT;
+    const SIZE_HINT: SizeHint = T::SIZE_HINT;
 
     fn packet_len(&self) -> usize {
         self.0.packet_len()

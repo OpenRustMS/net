@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use derive_more::{Into, DerefMut, Deref};
 
-use crate::{NetResult, PacketReader, PacketWriter};
+use crate::{NetResult, PacketReader, PacketWriter, SizeHint};
 
 use super::{wrapped::PacketWrapped, DecodePacket, DecodePacketOwned, EncodePacket};
 
@@ -101,7 +101,7 @@ where
         }
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         match self.as_ref() {

@@ -28,7 +28,7 @@ pub use padding::Padding;
 pub use time::{ShroomDurationMs16, ShroomDurationMs32, ShroomExpirationTime, ShroomTime};
 pub use wrapped::{PacketTryWrapped, PacketWrapped};
 
-use crate::{NetResult, PacketReader, PacketWriter, ShroomPacket};
+use crate::{NetResult, PacketReader, PacketWriter, ShroomPacket, SizeHint};
 
 /// Decodes this type from a packet reader
 pub trait DecodePacket<'de>: Sized {
@@ -77,7 +77,7 @@ pub trait DecodePacket<'de>: Sized {
 /// Encodes this type on a packet writer
 pub trait EncodePacket: Sized {
     /// Size Hint for types with a known type at compile time
-    const SIZE_HINT: Option<usize>;
+    const SIZE_HINT: SizeHint;
 
     /// Get the encoded length of this type
     fn packet_len(&self) -> usize;
@@ -139,8 +139,8 @@ macro_rules! impl_packet {
                     Ok(())
                 }
 
-                const SIZE_HINT: Option<usize> = $crate::util::SizeHint::zero()
-                        $(.add($crate::util::SizeHint($name::SIZE_HINT)))*.0;
+                const SIZE_HINT: $crate::SizeHint = $crate::util::SizeHint::ZERO
+                        $(.add($name::SIZE_HINT))*;
 
                 fn packet_len(&self) -> usize {
                     #[allow(non_snake_case)]
@@ -212,8 +212,8 @@ mod tests {
 
     #[test]
     fn tuple_size() {
-        assert_eq!(<((), (),)>::SIZE_HINT, Some(0));
-        assert_eq!(<((), u32,)>::SIZE_HINT, Some(4));
-        assert_eq!(<((), u32, String)>::SIZE_HINT, None);
+        assert_eq!(<((), (),)>::SIZE_HINT.0, Some(0));
+        assert_eq!(<((), u32,)>::SIZE_HINT.0, Some(4));
+        assert_eq!(<((), u32, String)>::SIZE_HINT.0, None);
     }
 }

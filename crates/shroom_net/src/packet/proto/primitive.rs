@@ -17,7 +17,7 @@ impl EncodePacket for () {
         Ok(())
     }
 
-    const SIZE_HINT: Option<usize> = Some(0);
+    const SIZE_HINT: SizeHint = SizeHint::ZERO;
 
     fn packet_len(&self) -> usize {
         0
@@ -36,7 +36,7 @@ where
         }
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         match self {
@@ -60,7 +60,7 @@ where
         Ok(())
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         self.0.as_ref().map(|v| v.packet_len()).unwrap_or(0)
@@ -94,7 +94,7 @@ macro_rules! impl_enc {
                 $enc(pw, *self)
             }
 
-            const SIZE_HINT: Option<usize> = Some(std::mem::size_of::<$ty>());
+            const SIZE_HINT: SizeHint = $crate::SizeHint::new(std::mem::size_of::<$ty>());
 
             fn packet_len(&self) -> usize {
                 std::mem::size_of::<$ty>()
@@ -138,7 +138,7 @@ impl<const N: usize, T: EncodePacket> EncodePacket for [T; N] {
         Ok(())
     }
 
-    const SIZE_HINT: Option<usize> = SizeHint(T::SIZE_HINT).mul_n(N).0;
+    const SIZE_HINT: SizeHint = T::SIZE_HINT.mul_n(N);
 
     fn packet_len(&self) -> usize {
         self.iter().map(|v| v.packet_len()).sum()
@@ -154,7 +154,7 @@ impl<D: EncodePacket> EncodePacket for Vec<D> {
         Ok(())
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         self.iter().map(|v| v.packet_len()).sum()
@@ -170,7 +170,7 @@ impl<D: EncodePacket> EncodePacket for Option<D> {
         Ok(())
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         self.as_ref().map(|v| v.packet_len()).unwrap_or(0)

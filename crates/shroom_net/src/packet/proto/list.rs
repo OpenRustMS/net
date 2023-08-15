@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use bytes::BufMut;
 use derive_more::{Deref, DerefMut, From, Into};
 
-use crate::{NetResult, PacketReader, PacketWriter};
+use crate::{NetResult, PacketReader, PacketWriter, SizeHint};
 
 use super::{DecodePacket, DecodePacketOwned, EncodePacket};
 
@@ -113,10 +113,10 @@ where
         Ok(())
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
-        I::SIZE_HINT.unwrap() + self.iter().map(|v| v.packet_len()).sum::<usize>()
+        I::SIZE_HINT.0.expect("Index size") + self.iter().map(|v| v.packet_len()).sum::<usize>()
     }
 }
 
@@ -201,10 +201,11 @@ where
         Ok(())
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
-        L::SIZE_HINT.unwrap() + self.items.iter().map(|v| v.packet_len()).sum::<usize>()
+        L::SIZE_HINT.0.expect("Index size")
+            + self.items.iter().map(|v| v.packet_len()).sum::<usize>()
     }
 }
 

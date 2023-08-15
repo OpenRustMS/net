@@ -77,7 +77,7 @@ impl PacketField {
         let ty = &self.ty;
         // Conditional has no SizeHint
         if self.get_cond().is_some() {
-            quote::quote!(None)
+            quote::quote!(shroom_net::SizeHint::NONE)
         } else {
             quote::quote!( <#ty>::SIZE_HINT )
         }
@@ -192,7 +192,7 @@ impl ShroomPacket {
         // Generate the sequence of const SizeHints for each field and concat them with .add()
         let struct_size_hint_fields = self.fields_with_name().map(|(_, field)| {
             let hint = field.size_hint_expr();
-            quote::quote!(.add(shroom_net::SizeHint(#hint)))
+            quote::quote!(.add(#hint))
         });
 
         // Generate the sequence of the packet_len determined at runtime
@@ -208,7 +208,7 @@ impl ShroomPacket {
                 Ok(())
             }
 
-            const SIZE_HINT: Option<usize> = shroom_net::SizeHint::zero()#(#struct_size_hint_fields)*.0;
+            const SIZE_HINT: shroom_net::SizeHint = shroom_net::SizeHint::ZERO #(#struct_size_hint_fields)*;
 
             fn packet_len(&self) -> usize {
                 0 #(#struct_packet_len_fields)*

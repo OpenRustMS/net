@@ -4,7 +4,7 @@ use arrayvec::{ArrayString, CapacityError};
 use bytes::BufMut;
 
 use crate::{
-    packet::packet_str_len, DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter,
+    packet::packet_str_len, DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter, SizeHint,
 };
 
 use super::PacketTryWrapped;
@@ -16,7 +16,7 @@ impl EncodePacket for String {
         self.as_str().encode_packet(pw)
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         self.as_str().packet_len()
@@ -40,7 +40,7 @@ impl<'a> EncodePacket for &'a str {
         pw.write_str(self)
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         packet_str_len(self)
@@ -57,7 +57,7 @@ impl<const N: usize> EncodePacket for arrayvec::ArrayString<N> {
         pw.write_str(self.as_str())
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         packet_str_len(self.as_str())

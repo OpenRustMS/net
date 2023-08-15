@@ -8,6 +8,7 @@ use crate::{
 
 use super::{handshake::Handshake, ShroomCodec, MAX_PACKET_LEN};
 
+/// Check the packet length
 fn check_packet_len(len: usize) -> NetResult<()> {
     if len > MAX_PACKET_LEN {
         return Err(NetError::FrameSize(len));
