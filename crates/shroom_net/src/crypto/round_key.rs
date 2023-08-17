@@ -1,5 +1,5 @@
 use cipher::{generic_array::GenericArray, typenum::U16};
-use rand::{CryptoRng, Rng};
+use rand::{CryptoRng, Rng, RngCore};
 
 use super::{ig_cipher::IgContext, ROUND_KEY_LEN};
 
@@ -43,7 +43,7 @@ impl RoundKey {
     /// Generate a random round key
     pub fn get_random<R>(mut rng: R) -> Self
     where
-        R: CryptoRng + Rng,
+        R: CryptoRng + RngCore,
     {
         let mut zero = Self::zero();
         rng.fill(&mut zero);

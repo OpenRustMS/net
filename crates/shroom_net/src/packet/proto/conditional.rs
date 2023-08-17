@@ -2,7 +2,7 @@ use bytes::BufMut;
 use derive_more::{Deref, DerefMut, From, Into};
 use either::Either;
 
-use crate::{NetResult, PacketReader, PacketWriter};
+use crate::{NetResult, PacketReader, PacketWriter, SizeHint};
 
 use super::{DecodePacket, EncodePacket};
 
@@ -34,7 +34,7 @@ impl<T: EncodePacket> EncodePacket for CondOption<T> {
             .unwrap_or(Ok(()))
     }
 
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         self.0.as_ref().map(|v| v.packet_len()).unwrap_or(0)
@@ -45,9 +45,9 @@ impl<'de, T> PacketConditional<'de> for CondOption<T>
 where
     T: EncodePacket + DecodePacket<'de>,
 {
-    fn encode_packet_cond<B: BufMut>(&self, cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()> {
-        if cond {
-            self.as_ref().expect("Must have value").encode_packet(pw)?;
+    fn encode_packet_cond<B: BufMut>(&self, _cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()> {
+        if let Some(ref p) = self.0 {
+            p.encode_packet(pw)?;
         }
         Ok(())
     }
@@ -75,20 +75,8 @@ where
     L: EncodePacket + DecodePacket<'de>,
     R: EncodePacket + DecodePacket<'de>,
 {
-    fn encode_packet_cond<B: BufMut>(&self, cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()> {
-        if cond {
-            self
-                .as_ref()
-                .left()
-                .expect("must have value")
-                .encode_packet(pw)
-        } else {
-            self
-                .as_ref()
-                .right()
-                .expect("must have value")
-                .encode_packet(pw)
-        }
+    fn encode_packet_cond<B: BufMut>(&self, _cond: bool, pw: &mut PacketWriter<B>) -> NetResult<()> {
+        either::for_both!(self.0.as_ref(), v => v.encode_packet(pw))
     }
 
     fn decode_packet_cond(cond: bool, pr: &mut PacketReader<'de>) -> NetResult<Self> {
@@ -100,10 +88,6 @@ where
     }
 
     fn packet_len_cond(&self, _cond: bool) -> usize {
-        //TODO use cond?
-        match &self.0 {
-            Either::Left(v) => v.packet_len(),
-            Either::Right(v) => v.packet_len(),
-        }
+        either::for_both!(self.0.as_ref(), v => v.packet_len())
     }
 }

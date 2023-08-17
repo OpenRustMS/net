@@ -1,4 +1,4 @@
-use crate::{DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter};
+use crate::{DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter, SizeHint};
 
 pub trait PartialData<'de>: Sized {
     type Flags;
@@ -36,7 +36,7 @@ where
     FlagData: PartialData<'de>,
     FlagData::Flags: EncodePacket + std::fmt::Debug,
 {
-    const SIZE_HINT: Option<usize> = None;
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn packet_len(&self) -> usize {
         let flags = self.data.get_flags();
@@ -142,7 +142,7 @@ macro_rules! partial_data {
             }
 
             impl $crate::EncodePacket for [<$name All>] {
-                const SIZE_HINT: Option<usize> = None;
+                const SIZE_HINT: $crate::SizeHint = $crate::SizeHint::NONE;
 
                 fn packet_len(&self) -> usize {
                     todo!()

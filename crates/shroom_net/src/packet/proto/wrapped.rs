@@ -1,6 +1,6 @@
 use bytes::BufMut;
 
-use crate::{NetResult, PacketReader, PacketWriter};
+use crate::{NetResult, PacketReader, PacketWriter, SizeHint};
 
 use super::{DecodePacket, EncodePacket};
 
@@ -29,10 +29,10 @@ where
         self.packet_into_inner().encode_packet(pw)
     }
 
-    const SIZE_HINT: Option<usize> = W::Inner::SIZE_HINT;
+    const SIZE_HINT: SizeHint = W::Inner::SIZE_HINT;
 
     fn packet_len(&self) -> usize {
-        Self::SIZE_HINT.unwrap_or(self.packet_into_inner().packet_len())
+        Self::SIZE_HINT.0.unwrap_or(self.packet_into_inner().packet_len())
     }
 }
 

@@ -4,7 +4,7 @@ use darling::{
 };
 use proc_macro2::{Span, TokenStream};
 use syn::{
-    parse_quote, GenericParam, Generics, Ident, Lifetime, Type, TypeParamBound, LifetimeParam,
+    parse_quote, GenericParam, Generics, Ident, Lifetime, LifetimeParam, Type, TypeParamBound,
 };
 
 /// Conditional Meta data, the field to check and the 'cond'ition function to call
@@ -47,22 +47,12 @@ struct PacketField {
 }
 
 impl PacketField {
-    // Get conditional data If either
+    /// Get condition field to check
     pub fn get_cond(&self) -> Option<&Cond> {
         self.check.as_ref().or(self.either.as_ref())
     }
 
-    // Get the encode expression for this field
-    pub fn encode_expr(&self, field_name: &TokenStream) -> TokenStream {
-        if let Some(cond) = self.get_cond() {
-            let cond = cond.self_expr();
-            quote::quote! ( shroom_net::packet::PacketConditional::encode_packet_cond(&self.#field_name, #cond, pw) )
-        } else {
-            quote::quote! ( self.#field_name.encode_packet(pw) )
-        }
-    }
-
-    // Get the packet_len expr for this field
+    /// Get the packet_len expr for this field
     pub fn packet_len_expr(&self, field_name: &TokenStream) -> TokenStream {
         if let Some(cond) = self.get_cond() {
             let cond = cond.self_expr();
@@ -72,14 +62,24 @@ impl PacketField {
         }
     }
 
-    // Get the size_hint expr for this field
+    /// Get the size_hint expr for this field
     pub fn size_hint_expr(&self) -> TokenStream {
         let ty = &self.ty;
         // Conditional has no SizeHint
         if self.get_cond().is_some() {
-            quote::quote!(None)
+            quote::quote!(shroom_net::SizeHint::NONE)
         } else {
             quote::quote!( <#ty>::SIZE_HINT )
+        }
+    }
+
+    /// Get the encode expression for this field
+    pub fn encode_expr(&self, field_name: &TokenStream) -> TokenStream {
+        if let Some(cond) = self.get_cond() {
+            let cond = cond.self_expr();
+            quote::quote! ( shroom_net::packet::PacketConditional::encode_packet_cond(&self.#field_name, #cond, pw) )
+        } else {
+            quote::quote! ( self.#field_name.encode_packet(pw) )
         }
     }
 
@@ -192,7 +192,7 @@ impl ShroomPacket {
         // Generate the sequence of const SizeHints for each field and concat them with .add()
         let struct_size_hint_fields = self.fields_with_name().map(|(_, field)| {
             let hint = field.size_hint_expr();
-            quote::quote!(.add(shroom_net::SizeHint(#hint)))
+            quote::quote!(.add(#hint))
         });
 
         // Generate the sequence of the packet_len determined at runtime
@@ -208,7 +208,7 @@ impl ShroomPacket {
                 Ok(())
             }
 
-            const SIZE_HINT: Option<usize> = shroom_net::SizeHint::zero()#(#struct_size_hint_fields)*.0;
+            const SIZE_HINT: shroom_net::SizeHint = shroom_net::SizeHint::ZERO #(#struct_size_hint_fields)*;
 
             fn packet_len(&self) -> usize {
                 0 #(#struct_packet_len_fields)*

@@ -3,43 +3,36 @@ use std::iter;
 use bytes::BytesMut;
 use itertools::Itertools;
 
-use crate::{EncodePacket, HasOpcode, NetResult, PacketWriter};
+use crate::{EncodePacket, NetResult, PacketWriter, HasOpcode};
 
 /// Buffer to allow to encode multiple packets onto one buffer
 /// while still allowing to iterate over the encoded packets
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PacketBuffer {
     buf: BytesMut,
     ix: Vec<usize>,
 }
 
-impl Default for PacketBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PacketBuffer {
-    pub fn new() -> Self {
-        Self {
-            buf: BytesMut::new(),
-            ix: Vec::new(),
-        }
-    }
-
     /// Encode a packet onto the buffer
-    pub fn write_packet<T: EncodePacket + HasOpcode>(&mut self, pkt: T) -> NetResult<()> {
+    pub fn encode_packet<T: EncodePacket + HasOpcode>(&mut self, pkt: T) -> NetResult<()> {
         // Store the previous index
         let ix = self.buf.len();
         let mut pw = PacketWriter::new(&mut self.buf);
+        
+        // If an error occurs reset the index
+        if let Err(err) = pw.write_opcode(T::OPCODE) {
+            self.buf.truncate(ix);
+            return Err(err);
+        }
 
-        pw.write_opcode(T::OPCODE)?;
         // If an error occurs reset the index
         if let Err(err) = pkt.encode_packet(&mut pw) {
             self.buf.truncate(ix);
             return Err(err);
         }
 
+        // Store the ix of the current packet
         self.ix.push(ix);
         Ok(())
     }
@@ -69,17 +62,17 @@ mod tests {
 
     #[test]
     fn packet_buf() -> anyhow::Result<()> {
-        let mut buf = PacketBuffer::new();
-        buf.write_packet(WithOpcode::<1, u8>(1))?;
-        buf.write_packet(WithOpcode::<1, u8>(2))?;
-        buf.write_packet(WithOpcode::<1, u8>(3))?;
+        let mut buf = PacketBuffer::default();
+        buf.encode_packet(WithOpcode::<1, u8>(1))?;
+        buf.encode_packet(WithOpcode::<1, u8>(2))?;
+        buf.encode_packet(WithOpcode::<1, u8>(3))?;
 
         itertools::assert_equal(buf.packets(), [[1, 0, 1], [1, 0, 2], [1, 0, 3]]);
 
         buf.clear();
 
         assert_eq!(buf.packets().count(), 0);
-        buf.write_packet(WithOpcode::<1, u8>(1))?;
+        buf.encode_packet(WithOpcode::<1, u8>(1))?;
         itertools::assert_equal(buf.packets(), [[1, 0, 1]]);
 
         Ok(())

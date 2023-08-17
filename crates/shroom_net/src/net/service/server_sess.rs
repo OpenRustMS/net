@@ -95,7 +95,9 @@ where
         }
     }
 
-    async fn migrate(mut self) -> Result<(), H::Error> {
+    /// Handle migration by finishing the handler and then closing the session
+    /// after the migration delay
+    async fn migrate(self) -> Result<(), H::Error> {
         log::trace!("Session migrated");
         self.handler.finish(true).await?;
         // Socket has to be kept open cause the client doesn't support
@@ -105,6 +107,7 @@ where
         Ok(())
     }
 
+    /// Handle the next ping
     async fn handle_ping_tick(&mut self) -> Result<(), H::Error> {
         // Check if previous ping was responded
         if self.pending_ping {
@@ -116,17 +119,18 @@ where
         log::trace!("Sending ping...");
         self.pending_ping = true;
         self.session
-            .send_raw_packet(self.cfg.ping_packet.as_ref())
+            .send_packet(self.cfg.ping_packet.as_ref())
             .await?;
         Ok(())
     }
 
+    /// Handle incoming pong
     fn handle_pong(&mut self) {
         // Reset flag
         self.pending_ping = false;
     }
 
-    pub async fn exec(mut self) -> Result<(), H::Error> {
+    async fn exec_loop(&mut self) -> Result<bool, H::Error> {
         let mut ping_interval = tokio::time::interval(self.cfg.ping_interval);
 
         loop {
@@ -138,7 +142,7 @@ where
                     // Handling the handle result
                     match res {
                         SessionHandleResult::Migrate => {
-                            return self.migrate().await;
+                            return Ok(true);
                         },
                         SessionHandleResult::Pong => {
                             self.handle_pong();
@@ -146,14 +150,15 @@ where
                         SessionHandleResult::Ok => ()
                     }
                 },
-                _ = ping_interval.tick() => {
+                _ = ping_interval.tick() => { 
                     self.handle_ping_tick().await?;
                 },
                 //Handle external Session packets
                 p = self.session_rx.next() => {
                     // note tx is never dropped, so there'll be always a packet here
-                    let p = p.expect("Session packet");
-                    self.session.send_raw_packet(&p).await?;
+                    // TODO handle error here
+                    let p = p.expect("Session packet").unwrap();
+                    self.session.send_packet(&p).await?;
                 },
                 msg = self.handler.poll_msg() => {
                     self.handler.handle_msg(&mut self.session, msg?).await?;
@@ -165,11 +170,25 @@ where
             };
         }
 
-        // Finish the handler
-        self.handler.finish(false).await?;
-        self.session.close().await?;
+        return Ok(false);
+    }
 
-        // Normal cancellation by timeout or cancellation
+    pub async fn exec(mut self) -> Result<(), H::Error> {
+        let res = self.exec_loop().await;
+
+        match res {
+            Ok(true) => {
+                self.migrate().await?;
+            },
+            Ok(false) => {
+                self.session.close().await?;
+            }
+            Err(e) => {
+                log::error!("Session error: {e:?}");
+                self.handler.finish(false).await?;
+                self.session.close().await?;
+            }
+        }
         Ok(())
     }
 }
@@ -217,12 +236,12 @@ where
         }
     }
 
-    /// Remove all closed sesison handles
+    /// Removes all closed sesison handles
     fn remove_closed_handles(&mut self) {
         self.handles.retain(|handle| handle.is_active());
     }
 
-    /// Add a handle
+    /// Adds a handle
     fn add_handle(&mut self, handle: ShroomSessionHandle<MH::Handler>) {
         // TODO: there should be an upper limit for active connections
 
@@ -319,18 +338,8 @@ where
         S: Stream<Item = std::io::Result<MH::Transport>> + Unpin,
     {
         while let Some(io) = io.next().await {
-            match io {
-                // Handle connection
-                Ok(io) => self.handle_incoming(io),
-                // Filter connection related errors
-                Err(err) if Self::is_connection_error(&err) => {
-                    log::trace!("Server Connection error: {}", err);
-                }
-                // If something is wrong with the stream cancel It here
-                Err(err) => {
-                    return Err(err.into());
-                }
-            }
+            let io = io?;
+            self.handle_incoming(io);
         }
 
         Ok(())
@@ -347,6 +356,16 @@ where
     /// Serve with the given `addr` via Tcp as Transprot
     pub async fn serve_tcp(&mut self, addr: impl ToSocketAddrs) -> Result<(), MH::Error> {
         let listener = TcpListener::bind(addr).await?;
-        self.run(TcpListenerStream::new(listener)).await
+        self.run(
+            TcpListenerStream::new(listener)
+                .filter(|io| std::future::ready(match io {
+                    // Skip connection errors, just log them
+                    Err(err) if Self::is_connection_error(err) => {
+                        log::trace!("Server Connection error: {}", err);
+                        false
+                    },
+                    _ => true
+                }))
+        ).await
     }
 }

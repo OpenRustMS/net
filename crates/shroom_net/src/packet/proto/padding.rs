@@ -1,6 +1,6 @@
 use bytes::BufMut;
 
-use crate::{NetResult, PacketReader, PacketWriter};
+use crate::{NetResult, PacketReader, PacketWriter, SizeHint};
 
 use super::{DecodePacket, EncodePacket};
 
@@ -38,7 +38,7 @@ impl<const N: usize> EncodePacket for Padding<N> {
         return pw.write_array(&[0; N]);
     }
 
-    const SIZE_HINT: Option<usize> = Some(N);
+    const SIZE_HINT: SizeHint = SizeHint::new(N);
 
     fn packet_len(&self) -> usize {
         N

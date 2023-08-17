@@ -14,6 +14,9 @@ pub enum FramedPipeError {
     OutOfCapacity,
     #[error("Capacity limit was reached")]
     CapacityLimitReached,
+    /// Signals the reader that this pipe missed a frame due to being out of capacity
+    #[error("Missed frame")]
+    MissedFrame
 }
 
 /// A `Pipe` which works on frames
@@ -35,8 +38,13 @@ impl FramedPipeBuf {
     }
 
     /// Take a frame from the buffer
-    fn take(&mut self, n: usize) -> Bytes {
-        self.buf.split_to(n).freeze()
+    fn take(&mut self, n: usize) -> Result<Bytes, FramedPipeError> {
+        if self.missed > 0 {
+            self.missed = 0;
+            return Err(FramedPipeError::MissedFrame);
+        }
+
+        Ok(self.buf.split_to(n).freeze())
     }
 
     /// Checks if there's enough space on the buffer
@@ -162,7 +170,7 @@ pub struct FramedPipeReceiver {
 
 /// Stream impl for the reader, wait on the channel
 impl Stream for FramedPipeReceiver {
-    type Item = Bytes;
+    type Item = Result<Bytes, FramedPipeError>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -210,7 +218,7 @@ mod tests {
             }
 
             for data in ECHO_DATA {
-                let rx_data = rx.next().await.unwrap();
+                let rx_data = rx.next().await.unwrap().expect("rx");
                 assert_eq!(&rx_data, data);
             }
         }
@@ -226,7 +234,7 @@ mod tests {
         for _ in 0..100 {
             for data in ECHO_DATA {
                 tx.clone().send(data).await.unwrap();
-                let rx_data = rx.next().await.unwrap();
+                let rx_data = rx.next().await.unwrap().expect("rx");
                 assert_eq!(&rx_data, data);
             }
         }

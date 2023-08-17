@@ -1,12 +1,16 @@
 pub mod filetime;
 pub mod framed_pipe;
 pub mod packet_buffer;
+
 /// Helper type to calculate size hint
 pub struct SizeHint(pub Option<usize>);
 
 impl SizeHint {
-    pub const fn zero() -> Self {
-        Self(Some(0))
+    pub const ZERO: Self = Self::new(0);
+    pub const NONE: Self = Self(None);
+
+    pub const fn new(n: usize) -> Self {
+        Self(Some(n))
     }
 
     /// Sum two Option<usize>
@@ -18,6 +22,15 @@ impl SizeHint {
         })
     }
 
+    /// Adds n to the value, If It is not None
+    pub const fn add_n(self, rhs: usize) -> Self {
+        match self.0 {
+            Some(a) => Self::new(a + rhs),
+            None => Self::NONE
+        }
+    }
+
+    /// Multiply by n
     pub const fn mul_n(self, n: usize) -> Self {
         Self(match self.0 {
             Some(a) => Some(a * n),
@@ -32,7 +45,13 @@ mod tests {
 
     #[test]
     fn size_hint_add() {
-        assert_eq!(SizeHint::zero().add(SizeHint(None)).0, None);
-        assert_eq!(SizeHint::zero().add(SizeHint(Some(1))).0, Some(1));
+        assert_eq!(SizeHint::ZERO.add(SizeHint(None)).0, None);
+        assert_eq!(SizeHint::ZERO.add(SizeHint(Some(1))).0, Some(1));
+    }
+
+    #[test]
+    fn size_hint_mul() {
+        assert_eq!(SizeHint::ZERO.mul_n(0).0, Some(0));   
+        assert_eq!(SizeHint::new(1).mul_n(2).0, Some(2));   
     }
 }
