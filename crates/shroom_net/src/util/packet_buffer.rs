@@ -7,19 +7,10 @@ use crate::{EncodePacket, NetResult, PacketWriter, HasOpcode};
 
 /// Buffer to allow to encode multiple packets onto one buffer
 /// while still allowing to iterate over the encoded packets
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PacketBuffer {
     buf: BytesMut,
     ix: Vec<usize>,
-}
-
-impl Default for PacketBuffer {
-    fn default() -> Self {
-        Self {
-            buf: BytesMut::default(),
-            ix: Vec::default(),
-        }
-    }
 }
 
 impl PacketBuffer {

@@ -4,7 +4,7 @@ use darling::{
 };
 use proc_macro2::{Span, TokenStream};
 use syn::{
-    parse_quote, GenericParam, Generics, Ident, Lifetime, Type, TypeParamBound, LifetimeParam,
+    parse_quote, GenericParam, Generics, Ident, Lifetime, LifetimeParam, Type, TypeParamBound,
 };
 
 /// Conditional Meta data, the field to check and the 'cond'ition function to call
@@ -47,22 +47,12 @@ struct PacketField {
 }
 
 impl PacketField {
-    // Get conditional data If either
+    /// Get condition field to check
     pub fn get_cond(&self) -> Option<&Cond> {
         self.check.as_ref().or(self.either.as_ref())
     }
 
-    // Get the encode expression for this field
-    pub fn encode_expr(&self, field_name: &TokenStream) -> TokenStream {
-        if let Some(cond) = self.get_cond() {
-            let cond = cond.self_expr();
-            quote::quote! ( shroom_net::packet::PacketConditional::encode_packet_cond(&self.#field_name, #cond, pw) )
-        } else {
-            quote::quote! ( self.#field_name.encode_packet(pw) )
-        }
-    }
-
-    // Get the packet_len expr for this field
+    /// Get the packet_len expr for this field
     pub fn packet_len_expr(&self, field_name: &TokenStream) -> TokenStream {
         if let Some(cond) = self.get_cond() {
             let cond = cond.self_expr();
@@ -72,7 +62,7 @@ impl PacketField {
         }
     }
 
-    // Get the size_hint expr for this field
+    /// Get the size_hint expr for this field
     pub fn size_hint_expr(&self) -> TokenStream {
         let ty = &self.ty;
         // Conditional has no SizeHint
@@ -80,6 +70,16 @@ impl PacketField {
             quote::quote!(shroom_net::SizeHint::NONE)
         } else {
             quote::quote!( <#ty>::SIZE_HINT )
+        }
+    }
+
+    /// Get the encode expression for this field
+    pub fn encode_expr(&self, field_name: &TokenStream) -> TokenStream {
+        if let Some(cond) = self.get_cond() {
+            let cond = cond.self_expr();
+            quote::quote! ( shroom_net::packet::PacketConditional::encode_packet_cond(&self.#field_name, #cond, pw) )
+        } else {
+            quote::quote! ( self.#field_name.encode_packet(pw) )
         }
     }
 

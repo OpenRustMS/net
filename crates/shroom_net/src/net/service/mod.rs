@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use arrayvec::ArrayString;
 
-use crate::{crypto::RoundKey};
+use crate::crypto::RoundKey;
+
 use super::codec::handshake::{Handshake, LocaleCode};
 
 

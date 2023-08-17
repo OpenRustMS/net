@@ -130,7 +130,7 @@ where
         self.pending_ping = false;
     }
 
-    pub async fn exec(mut self) -> Result<(), H::Error> {
+    async fn exec_loop(&mut self) -> Result<bool, H::Error> {
         let mut ping_interval = tokio::time::interval(self.cfg.ping_interval);
 
         loop {
@@ -142,7 +142,7 @@ where
                     // Handling the handle result
                     match res {
                         SessionHandleResult::Migrate => {
-                            return self.migrate().await;
+                            return Ok(true);
                         },
                         SessionHandleResult::Pong => {
                             self.handle_pong();
@@ -170,11 +170,25 @@ where
             };
         }
 
-        // Finish the handler
-        self.handler.finish(false).await?;
-        self.session.close().await?;
+        return Ok(false);
+    }
 
-        // Normal cancellation by timeout or cancellation
+    pub async fn exec(mut self) -> Result<(), H::Error> {
+        let res = self.exec_loop().await;
+
+        match res {
+            Ok(true) => {
+                self.migrate().await?;
+            },
+            Ok(false) => {
+                self.session.close().await?;
+            }
+            Err(e) => {
+                log::error!("Session error: {e:?}");
+                self.handler.finish(false).await?;
+                self.session.close().await?;
+            }
+        }
         Ok(())
     }
 }
@@ -346,7 +360,7 @@ where
             TcpListenerStream::new(listener)
                 .filter(|io| std::future::ready(match io {
                     // Skip connection errors, just log them
-                    Err(err) if Self::is_connection_error(&err) => {
+                    Err(err) if Self::is_connection_error(err) => {
                         log::trace!("Server Connection error: {}", err);
                         false
                     },
