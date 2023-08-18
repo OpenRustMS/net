@@ -93,7 +93,7 @@ where
         self,
         session: &mut ShroomSession<Trans>,
     ) -> NetResult<SessionHandleResult> {
-        session.send_encode_packet((self.op, self.data)).await?;
+        session.send_encode_packet_with_opcode(self.op, self.data).await?;
         Ok(SessionHandleResult::Ok)
     }
 }

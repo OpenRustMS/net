@@ -9,8 +9,8 @@ use tokio::{
 use tokio_util::codec::Framed;
 
 use crate::{
-    crypto::SharedCryptoContext, EncodePacket, NetError, NetResult, PacketBuffer, PacketWriter,
-    ShroomPacket,
+    crypto::SharedCryptoContext, EncodePacket, HasOpcode, NetError, NetOpcode, NetResult,
+    PacketBuffer, PacketWriter, ShroomPacket,
 };
 
 use super::codec::{handshake::Handshake, packet_codec::PacketCodec};
@@ -91,12 +91,25 @@ where
         Ok(())
     }
 
-    pub async fn send_encode_packet(&mut self, data: impl EncodePacket) -> NetResult<()> {
+    pub async fn send_encode_packet<P: EncodePacket + HasOpcode>(
+        &mut self,
+        data: P,
+    ) -> NetResult<()> {
+        self.send_encode_packet_with_opcode(P::OPCODE, data).await
+    }
+
+    pub async fn send_encode_packet_with_opcode(
+        &mut self,
+        op: impl NetOpcode,
+        data: impl EncodePacket,
+    ) -> NetResult<()> {
         self.encode_buffer.clear();
         self.encode_buffer.reserve(4096);
 
         // Encode the packet onto the buffer
-        data.encode_packet(&mut PacketWriter::new(&mut self.encode_buffer))?;
+        let mut pw = PacketWriter::new(&mut self.encode_buffer);
+        pw.write_opcode(op)?;
+        data.encode_packet(&mut pw)?;
 
         self.codec.send(&self.encode_buffer).await?;
         Ok(())
