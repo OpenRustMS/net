@@ -4,7 +4,15 @@ use bytes::{BufMut, Bytes, BytesMut};
 use futures::{channel::mpsc, ready, Sink, Stream};
 use thiserror::Error;
 
-// TODO: add signaling mechanismn that pipe was full and reader should quit
+/// Tries to reserve additional memory, returns whether the additional memory
+/// was possible to claim with the maximum bounds considered
+fn try_reserve_with_max_cap(buf: &mut BytesMut, additional: usize, max: usize) -> bool {
+    // TODO: makes this work properly, when bytes gets support for It
+    // Currentely It only returns false after an additional allocation and that allocation
+    // Would have to double the capacity each time
+    buf.reserve(additional);
+    buf.capacity() <= max
+}
 
 #[derive(Debug, Error)]
 pub enum FramedPipeError {
@@ -16,7 +24,7 @@ pub enum FramedPipeError {
     CapacityLimitReached,
     /// Signals the reader that this pipe missed a frame due to being out of capacity
     #[error("Missed frame")]
-    MissedFrame
+    MissedFrame,
 }
 
 /// A `Pipe` which works on frames
@@ -48,22 +56,11 @@ impl FramedPipeBuf {
     }
 
     /// Checks if there's enough space on the buffer
-    fn check_capacity(&mut self, frame: &[u8]) -> Result<(), FramedPipeError> {
+    fn try_reserve(&mut self, frame: &[u8]) -> Result<(), FramedPipeError> {
         // Check if there's enough capacity
-        if frame.len() > self.buf.capacity() {
-            self.buf.reserve(frame.len());
-
-            // TODO: find a better way to do this
-            // this not being 100% correct doesn't matter too much for now, as in a session would simply consume abit more memory
-            // but for later this should be correct
-            // sadly this will also allocate one time unnecessarely
-
-            // If buffer is reallocated the space is usually doubled
-            // so this check should be sufficient for the current use-case
-            if self.buf.capacity() + self.buf.len() > self.cap {
-                self.missed += 1;
-                return Err(FramedPipeError::OutOfCapacity);
-            }
+        if !try_reserve_with_max_cap(&mut self.buf, frame.len(), self.cap) {
+            self.missed += 1;
+            return Err(FramedPipeError::OutOfCapacity);
         }
 
         Ok(())
@@ -92,7 +89,7 @@ impl FramedPipeSender {
         buf: &mut FramedPipeBuf,
         tx: &mut mpsc::Sender<usize>,
     ) -> Result<(), FramedPipeError> {
-        buf.check_capacity(frame.as_ref())?;
+        buf.try_reserve(frame.as_ref())?;
         tx.try_send(frame.as_ref().len())
             .map_err(|err| FramedPipeError::SendError(err.into_send_error()))?;
         buf.put(frame);
@@ -102,7 +99,7 @@ impl FramedPipeSender {
     /// Helper method for the Sink impl
     fn push(&mut self, frame: &[u8]) -> Result<(), FramedPipeError> {
         let mut buf = self.buf.lock();
-        buf.check_capacity(frame)?;
+        buf.try_reserve(frame)?;
         self.tx.start_send(frame.len())?;
         buf.put(frame);
         Ok(())
@@ -205,6 +202,16 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn reserve_cap() {
+        let mut data = BytesMut::with_capacity(4);
+        data.put_u16(10);
+
+        assert!(try_reserve_with_max_cap(&mut data, 2, 4));
+        assert!(try_reserve_with_max_cap(&mut data, 0, 4));
+        assert!(!try_reserve_with_max_cap(&mut data, 3, 4));
+    }
+
     // Test with multiple echo data
     #[tokio::test]
     async fn echo_pipe() {
@@ -223,6 +230,8 @@ mod tests {
             }
         }
     }
+
+
 
     // Test to ensure the buffer stays at the 4096 bytes capacity
     #[tokio::test]

@@ -3,16 +3,16 @@ use std::fmt::Display;
 use bytes::Bytes;
 use pretty_hex::PrettyHex;
 
-/// Data analytics to get some more info about an error during reading a packet
+/// Provides context for the packet
 #[derive(Debug)]
-pub struct PacketDataAnalytics {
+pub struct PacketDataContext {
     data: Bytes,
     pos: usize,
     read_len: usize,
     context: usize,
 }
 
-impl PacketDataAnalytics {
+impl PacketDataContext {
     /// Create analytics data by copying the byte slice
     pub fn from_data(data: &[u8], pos: usize, read_len: usize, context: usize) -> Self {
         Self {
@@ -32,7 +32,7 @@ impl PacketDataAnalytics {
     }
 }
 
-impl Display for PacketDataAnalytics {
+impl Display for PacketDataContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let hex = self.get_relevant_data().hex_dump();
         write!(f, "{hex}")

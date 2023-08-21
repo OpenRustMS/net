@@ -3,17 +3,17 @@ use std::{fmt::Display, io, str::Utf8Error};
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 
-use crate::packet::analyzer::PacketDataAnalytics;
+use crate::packet::packet_data_context::PacketDataContext;
 
 #[derive(Debug)]
 pub struct EOFErrorData {
-    pub analytics: PacketDataAnalytics,
+    pub ctx: PacketDataContext,
     pub type_name: &'static str,
 }
 
 impl Display for EOFErrorData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "eof packet(type={}): {}", self.type_name, self.analytics)
+        write!(f, "eof packet(type={}): {}", self.type_name, self.ctx)
     }
 }
 
@@ -63,7 +63,7 @@ impl NetError {
         let type_name = std::any::type_name::<T>();
         let pos = data.len().saturating_sub(read_len);
         Self::EOF(Box::new(EOFErrorData {
-            analytics: PacketDataAnalytics::from_data(data, pos, read_len, read_len * 5),
+            ctx: PacketDataContext::from_data(data, pos, read_len, read_len * 5),
             type_name,
         }))
     }

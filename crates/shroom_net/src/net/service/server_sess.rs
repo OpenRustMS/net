@@ -19,19 +19,19 @@ use super::{
 
 #[derive(Debug, Clone)]
 pub struct SharedSessionHandle {
-    pub ct: CancellationToken,
-    pub tx: FramedPipeSender,
+    ct: CancellationToken,
+    tx: FramedPipeSender,
 }
 
 impl SharedSessionHandle {
     /// Attempt to send a packet buffer to the session
     pub fn try_send_pkt_buf(&mut self, pkt_buf: &PacketBuffer) -> anyhow::Result<()> {
-        Ok(self.tx.try_send_all(pkt_buf.packets())?)
+        Ok(self.tx.clone().try_send_all(pkt_buf.packets())?)
     }
 
     /// Attempt to send a single packet to the buffer
-    pub fn try_send_pkt(&mut self, pkt: impl AsRef<[u8]>) -> anyhow::Result<()> {
-        Ok(self.tx.try_send(pkt)?)
+    pub fn try_send_pkt(&self, pkt: impl AsRef<[u8]>) -> anyhow::Result<()> {
+        Ok(self.tx.clone().try_send(pkt)?)
     }
 }
 
@@ -164,13 +164,11 @@ where
                     self.handler.handle_msg(&mut self.session, msg?).await?;
                 },
                 _ = self.session_handle.ct.cancelled() => {
-                    break;
+                    break Ok(false);
                 },
 
             };
         }
-
-        return Ok(false);
     }
 
     pub async fn exec(mut self) -> Result<(), H::Error> {

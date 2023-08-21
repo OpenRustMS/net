@@ -34,9 +34,7 @@ impl<Key: Hash + Eq> SessionSet<Key> {
             .expect("Session send to")
             .get(&rx_key)
             .ok_or_else(|| anyhow::format_err!("Unable to find session"))?
-            .tx
-            .clone()
-            .try_send(pkt.as_ref())?;
+            .try_send_pkt(pkt.as_ref())?;
 
         Ok(())
     }
@@ -46,7 +44,7 @@ impl<Key: Hash + Eq> SessionSet<Key> {
             if src == *key {
                 continue;
             }
-            let _ = sess.tx.clone().try_send(pkt.as_ref());
+            let _ = sess.try_send_pkt(pkt.as_ref());
         }
         Ok(())
     }
