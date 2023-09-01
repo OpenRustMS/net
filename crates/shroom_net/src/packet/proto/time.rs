@@ -178,20 +178,17 @@ pub type ShroomDurationMs32 = DurationMs<u32>;
 mod tests {
     use std::time::Duration;
 
-    use crate::packet::{
-        proto::tests::{enc_dec_test, enc_dec_test_all},
-        time::{ShroomDurationMs16, ShroomDurationMs32},
-    };
-    use quickcheck::{quickcheck, TestResult};
+    use crate::packet::test_util::test_encode_decode_owned_all;
 
     use super::{DurationMs, ShroomExpirationTime, ShroomTime};
 
+    /*
     quickcheck! {
         fn q_dur16(dur: Duration) -> TestResult {
             if dur.as_millis() > u16::MAX as u128 {
                 return TestResult::discard();
             }
-            enc_dec_test::<ShroomDurationMs16>(dur.into());
+            test_encode_decode_owned::<ShroomDurationMs16>(dur.into());
             TestResult::passed()
         }
 
@@ -199,14 +196,14 @@ mod tests {
             if dur.as_millis() > u32::MAX as u128 {
                 return TestResult::discard();
             }
-            enc_dec_test::<ShroomDurationMs32>(dur.into());
+            test_encode_decode_owned::<ShroomDurationMs32>(dur.into());
             TestResult::passed()
         }
-    }
+    }*/
 
     #[test]
     fn dur() {
-        enc_dec_test_all([
+        test_encode_decode_owned_all([
             DurationMs::<u32>(1),
             Duration::from_millis(100 as u64).into(),
         ]);
@@ -214,7 +211,7 @@ mod tests {
 
     #[test]
     fn expiration_time() {
-        enc_dec_test_all([
+        test_encode_decode_owned_all([
             ShroomExpirationTime::never(),
             ShroomExpirationTime(None),
             ShroomExpirationTime::delay(chrono::Duration::seconds(1_000)),

@@ -1,61 +1,57 @@
 use async_trait::async_trait;
 
-use crate::{
-    net::{SessionTransport, ShroomSession},
-    EncodePacket, HasOpcode, NetOpcode, NetResult,
-};
+use crate::{EncodePacket, HasOpcode, NetOpcode, NetResult};
 
-use super::handler::SessionHandleResult;
+use super::{handler::ShroomSessionHandler, ShroomContext};
 
-//TODO: either remove async_trait for performance reasons
-// or wait for async fn's in trait becoming stable
+//TODO: rework everything when async trait drops
 
 /// Represents a response which can be sent with the session
 /// Returning a SessionHandleResult
 #[async_trait]
 pub trait Response {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
+    async fn send<H: ShroomSessionHandler + Send>(
         self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult>;
+        ctx: &mut ShroomContext<H>,
+    ) -> NetResult<()>;
 }
 
 /// Unit is essentially a No-Op
 #[async_trait]
 impl Response for () {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
+    async fn send<H: ShroomSessionHandler + Send>(
         self,
-        _session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
-        Ok(SessionHandleResult::Ok)
+        _ctx: &mut ShroomContext<H>,
+    ) -> NetResult<()> {
+        Ok(())
     }
 }
 
 /// Sending the value Some value If It's set
 #[async_trait]
 impl<Resp: Response + Send> Response for Option<Resp> {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
+    async fn send<H: ShroomSessionHandler + Send>(
         self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
-        match self {
-            Some(resp) => resp.send(session).await,
-            None => Ok(SessionHandleResult::Ok),
+        ctx: &mut ShroomContext<H>,
+    ) -> NetResult<()> {
+        if let Some(resp) = self {
+            resp.send(ctx).await?;
         }
+        Ok(())
     }
 }
 
 /// Sending all Responses in this `Vec`
 #[async_trait]
 impl<Resp: Response + Send> Response for Vec<Resp> {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
+    async fn send<H: ShroomSessionHandler + Send>(
         self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
+        ctx: &mut ShroomContext<H>,
+    ) -> NetResult<()> {
         for resp in self.into_iter() {
-            resp.send(session).await?;
+            resp.send(ctx).await?;
         }
-        Ok(SessionHandleResult::Ok)
+        Ok(())
     }
 }
 
@@ -89,12 +85,14 @@ impl<T> Response for ResponsePacket<T>
 where
     T: EncodePacket + Send,
 {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
+    async fn send<H: ShroomSessionHandler + Send>(
         self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
-        session.send_encode_packet_with_opcode(self.op, self.data).await?;
-        Ok(SessionHandleResult::Ok)
+        ctx: &mut ShroomContext<H>,
+    ) -> NetResult<()> {
+        ctx.session
+            .send_encode_packet_with_opcode(self.op, self.data)
+            .await?;
+        Ok(())
     }
 }
 
@@ -107,12 +105,13 @@ impl<T> Response for MigrateResponse<T>
 where
     T: Response + Send,
 {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
+    async fn send<H: ShroomSessionHandler + Send>(
         self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
-        self.0.send(session).await?;
-        return Ok(SessionHandleResult::Migrate);
+        ctx: &mut ShroomContext<H>,
+    ) -> NetResult<()> {
+        self.0.send(ctx).await?;
+        ctx.set_migrate(true);
+        return Ok(());
     }
 }
 
@@ -121,11 +120,12 @@ pub struct PongResponse;
 
 #[async_trait]
 impl Response for PongResponse {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
+    async fn send<H: ShroomSessionHandler + Send>(
         self,
-        _session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
-        return Ok(SessionHandleResult::Pong);
+        _ctx: &mut ShroomContext<H>,
+    ) -> NetResult<()> {
+        // TODO
+        Ok(())
     }
 }
 

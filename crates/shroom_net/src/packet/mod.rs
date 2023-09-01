@@ -61,3 +61,57 @@ impl AsRef<Bytes> for ShroomPacket {
         &self.0
     }
 }
+
+pub mod test_util {
+    use bytes::BytesMut;
+
+    use crate::{EncodePacket, DecodePacket, PacketWriter};
+
+    use super::DecodePacketOwned;
+
+    pub fn test_encode_decode_owned<T>(data: T)
+    where
+        T: EncodePacket + DecodePacketOwned + PartialEq + std::fmt::Debug,
+    {
+        let mut pw = PacketWriter::new(BytesMut::new());
+        data.encode_packet(&mut pw).expect("must encode");
+
+        let inner = pw.into_inner();
+        let cmp = T::decode_from_data_complete(&inner).expect("must decode complete");
+        assert_eq!(data, cmp);
+    }
+
+    pub fn test_encode_decode_owned_all<T>(data: impl IntoIterator<Item = T>)
+    where
+        T: EncodePacket + DecodePacketOwned + PartialEq + std::fmt::Debug,
+    {
+        for v in data {
+            test_encode_decode_owned(v);
+        }
+    }
+
+    pub fn test_encode_decode<'de, T>(data: T, buf: &'de mut BytesMut)
+    where
+        T: EncodePacket + DecodePacket<'de> + PartialEq + std::fmt::Debug,
+    {
+        let mut pw = PacketWriter::new(buf);
+        data.encode_packet(&mut pw).expect("must encode");
+
+        let inner = pw.into_inner();
+        let cmp = T::decode_from_data_complete(inner).expect("must decode complete");
+        assert_eq!(data, cmp);
+    }
+
+    #[macro_export]
+    macro_rules! test_encode_decode {
+        ($d:expr) => {
+            let mut data = bytes::BytesMut::new();
+            $crate::packet::test_util::test_encode_decode($d, &mut data);
+        };
+        ($($d:expr),*) => {
+            $(
+                $crate::test_encode_decode!($d);
+            )*
+        }
+    }
+}

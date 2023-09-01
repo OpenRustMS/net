@@ -20,7 +20,7 @@ path = "tests/progress.rs"
 syn = { version = "2", features=["extra-traits", "parsing"]}
 quote = "1"
 anyhow = "1"
-shroom_net = { version = "0.2", path = "../shroom_net" }
+shroom_net = { version = "0.3", path = "../shroom_net" }
 darling = "0.20"
 proc-macro2 = "1"
 either = "1"

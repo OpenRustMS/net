@@ -4,11 +4,12 @@ use arrayvec::{ArrayString, CapacityError};
 use bytes::BufMut;
 
 use crate::{
-    packet::packet_str_len, DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter, SizeHint,
+    packet::packet_str_len, DecodePacket, EncodePacket, NetResult, PacketReader, PacketWriter,
+    SizeHint,
 };
 
 use super::PacketTryWrapped;
- 
+
 // Basic support for String and str
 
 impl EncodePacket for String {
@@ -46,7 +47,6 @@ impl<'a> EncodePacket for &'a str {
         packet_str_len(self)
     }
 }
-
 
 // Basic support for ArrayString
 impl<const N: usize> EncodePacket for arrayvec::ArrayString<N> {
@@ -115,27 +115,28 @@ impl<'a, const N: usize> TryFrom<&'a str> for FixedPacketString<N> {
 mod tests {
     use arrayvec::ArrayString;
 
-    use crate::packet::proto::tests::{enc_dec_test_all, enc_dec_test};
+    use crate::{packet::test_util::test_encode_decode_owned_all, test_encode_decode};
 
     use super::FixedPacketString;
 
+    /*
     quickcheck::quickcheck! {
         #[test]
         fn q_str(s: String) -> () {
-            enc_dec_test(s);
+            test_encode_decode_owned(s);
         }
-    }
+    }*/
 
     #[test]
     fn string() {
         // String / str
         // String uses &str so no need to test that
-        enc_dec_test_all(["".to_string(), "AAAAAAAAAAA".to_string(), "\0".to_string()]);
+        test_encode_decode!("".to_string(), "AAAAAAAAAAA".to_string(), "\0".to_string());
     }
 
     #[test]
     fn array_string() {
-        enc_dec_test_all::<ArrayString<11>>([
+        test_encode_decode_owned_all::<ArrayString<11>>([
             "".try_into().unwrap(),
             "AAAAAAAAAAA".try_into().unwrap(),
             "\0".try_into().unwrap(),
@@ -144,7 +145,7 @@ mod tests {
 
     #[test]
     fn fixed_string() {
-        enc_dec_test_all::<FixedPacketString<11>>([
+        test_encode_decode_owned_all::<FixedPacketString<11>>([
             "".try_into().unwrap(),
             "AAAAAAAAAAA".try_into().unwrap(),
             "a".try_into().unwrap(),

@@ -8,20 +8,7 @@ use crate::{
     DecodePacket, NetError, PacketReader, ShroomPacket,
 };
 
-use super::{
-    resp::{IntoResponse, Response},
-    server_sess::SharedSessionHandle,
-};
-
-/// Session handle result
-pub enum SessionHandleResult {
-    /// Indicates this handler finished succesfully
-    Ok,
-    /// Indicates the session to start a migration
-    Migrate,
-    /// Signalling a Pong response was received
-    Pong,
-}
+use super::{SessionHandleResult, ShroomContext, SharedSessionHandle};
 
 /// Handler creator
 #[async_trait]
@@ -34,31 +21,26 @@ pub trait MakeServerSessionHandler {
     /// and the shared session `handle`
     async fn make_handler(
         &mut self,
-        sess: &mut ShroomSession<Self::Transport>,
+        sess: ShroomSession<Self::Transport>,
         handle: SharedSessionHandle,
-    ) -> Result<Self::Handler, Self::Error>;
+    ) -> Result<ShroomContext<Self::Handler>, Self::Error>;
 }
 
 /// Session handler trait, which used to handle packets and handle messages
 #[async_trait]
 pub trait ShroomSessionHandler: Sized {
-    type Transport: SessionTransport;
+    type Transport: SessionTransport + Send;
     type Error: From<NetError> + Debug;
     type Msg: Send;
 
     /// Handle an incoming packet
     async fn handle_packet(
-        &mut self,
+        ctx: &mut ShroomContext<Self>,
         packet: ShroomPacket,
-        session: &mut ShroomSession<Self::Transport>,
     ) -> Result<SessionHandleResult, Self::Error>;
 
     /// Handle a passed message
-    async fn handle_msg(
-        &mut self,
-        session: &mut ShroomSession<Self::Transport>,
-        msg: Self::Msg,
-    ) -> Result<(), Self::Error>;
+    async fn handle_msg(ctx: &mut ShroomContext<Self>, msg: Self::Msg) -> Result<(), Self::Error>;
 
     /// Poll a message to archive an actor like message passing
     /// per default that's a never ending future
@@ -73,23 +55,20 @@ pub trait ShroomSessionHandler: Sized {
 }
 
 /// Call a the specified handler function `f` and process the returned response
-pub async fn call_handler_fn<'session, F, Req, Fut, Trans, State, Resp, Err>(
-    state: &'session mut State,
-    session: &'session mut ShroomSession<Trans>,
+pub async fn call_handler_fn<'session, F, Req, Fut, Err, H: ShroomSessionHandler>(
+    ctx: &'session mut ShroomContext<H>,
     mut pr: PacketReader<'session>,
     mut f_handler: F,
-) -> Result<SessionHandleResult, Err>
+) -> Result<(), Err>
 where
+    H: 'session,
     Req: DecodePacket<'session>,
-    Resp: IntoResponse,
     Err: From<NetError>,
-    Fut: Future<Output = Result<Resp, Err>>,
-    F: FnMut(&'session mut State, Req) -> Fut,
-    Trans: SessionTransport + Send + Unpin,
+    Fut: Future<Output = Result<(), Err>>,
+    F: FnMut(&'session mut ShroomContext<H>, Req) -> Fut,
 {
     let req = Req::decode_packet(&mut pr)?;
-    let resp = f_handler(state, req).await?.into_response();
-    Ok(resp.send(session).await?)
+    f_handler(ctx, req).await
 }
 
 /// Declares an async router fn
@@ -107,14 +86,14 @@ where
 /// );
 #[macro_export]
 macro_rules! shroom_router_fn {
-    ($fname:ident, $state:ty, $session:ty, $err:ty, $default_handler:expr, $($req:ty => $handler_fn:expr),* $(,)?) => {
-        async fn $fname<'session>(state: &'session mut $state, session: &'session mut $session, mut pr: $crate::PacketReader<'session>) ->  Result<SessionHandleResult, $err> {
+    ($fname:ident, $handler:ty, $err:ty, $default_handler:expr, $($req:ty => $handler_fn:expr),* $(,)?) => {
+        async fn $fname<'session>(ctx: &'session mut ShroomContext<$handler>, mut pr: $crate::PacketReader<'session>) ->  Result<(), $err> {
             let recv_op = pr.read_opcode()?;
             match recv_op {
                 $(
-                    <$req as $crate::HasOpcode>::OPCODE  => $crate::net::service::handler::call_handler_fn(state, session, pr, $handler_fn).await,
+                    <$req as $crate::HasOpcode>::OPCODE  => $crate::net::service::handler::call_handler_fn(ctx, pr, $handler_fn).await,
                 )*
-                _ =>   $default_handler(state, recv_op, pr).await
+                _ =>   $default_handler(ctx, recv_op, pr).await
             }
         }
     };
@@ -122,39 +101,68 @@ macro_rules! shroom_router_fn {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
-
     use crate::{
         crypto::SharedCryptoContext,
         net::{
-            service::{BasicHandshakeGenerator, HandshakeGenerator},
+            service::{
+                BasicHandshakeGenerator, HandshakeGenerator, SessionHandleResult, ShroomContext, SharedSessionHandle,
+            },
             ShroomSession,
         },
         opcode::WithOpcode,
-        PacketReader, PacketWriter,
+        PacketReader, PacketWriter, ShroomPacket,
     };
 
-    use super::SessionHandleResult;
+    use super::ShroomSessionHandler;
 
     pub type Req1 = WithOpcode<0, u16>;
+    pub type Req2 = WithOpcode<1, ()>;
 
+    type Ctx = ShroomContext<Handler>;
     #[derive(Debug, Default)]
-    struct State {
+    struct Handler {
         req1: Req1,
     }
 
-    impl State {
-        async fn handle_req1(&mut self, req: Req1) -> anyhow::Result<()> {
-            self.req1 = req;
+    impl Handler {
+        async fn handle_req1(ctx: &mut Ctx, req: Req1) -> anyhow::Result<()> {
+            ctx.state.req1 = req;
             Ok(())
         }
 
+        async fn handle_double(ctx: &mut Ctx, _req: WithOpcode<1, ()>) -> anyhow::Result<()> {
+            Ok(ctx.send(WithOpcode::<1, u16>(ctx.state.req1.0 * 2)).await?)
+        }
+
         async fn handle_default(
-            &mut self,
-            _op: u16,
+            _ctx: &mut Ctx,
+            op: u16,
             _pr: PacketReader<'_>,
-        ) -> anyhow::Result<SessionHandleResult> {
-            Ok(SessionHandleResult::Ok)
+        ) -> anyhow::Result<()> {
+            panic!("Invalid opcode: {op}");
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ShroomSessionHandler for Handler {
+        type Transport = std::io::Cursor<Vec<u8>>;
+        type Error = anyhow::Error;
+        type Msg = ();
+
+        /// Handle an incoming packet
+        async fn handle_packet(
+            _ctx: &mut ShroomContext<Self>,
+            _packet: ShroomPacket,
+        ) -> Result<SessionHandleResult, Self::Error> {
+            todo!();
+        }
+
+        /// Handle a passed message
+        async fn handle_msg(
+            _ctx: &mut ShroomContext<Self>,
+            _msg: Self::Msg,
+        ) -> Result<(), Self::Error> {
+            todo!()
         }
     }
 
@@ -166,28 +174,32 @@ mod tests {
 
     #[tokio::test]
     async fn router() {
-        let mut sess = get_fake_session();
-        let mut state = State::default();
+        let sess = get_fake_session();
 
         let mut pw = PacketWriter::default();
         pw.write_opcode(0u16).expect("Encode");
         pw.write_u16(123).expect("Encode");
+        let pkt_req1 = pw.into_packet();
 
-        let pkt = pw.into_packet();
+        let mut pw = PacketWriter::default();
+        pw.write_opcode(1u16).expect("Encode");
+        let pkt_req2 = pw.into_packet();
 
         shroom_router_fn!(
             handle,
-            State,
-            ShroomSession<io::Cursor<Vec<u8>>>,
+            Handler,
             anyhow::Error,
-            State::handle_default,
-            Req1 => State::handle_req1,
+            Handler::handle_default,
+            Req1 => Handler::handle_req1,
+            Req2 => Handler::handle_double,
         );
 
-        handle(&mut state, &mut sess, pkt.into_reader())
-            .await
-            .unwrap();
+        let session_handle = SharedSessionHandle::new();
 
-        assert_eq!(state.req1.0, 123);
+        let mut ctx = ShroomContext::new(sess, Handler::default(), session_handle.0);
+        handle(&mut ctx, pkt_req1.into_reader()).await.unwrap();
+        assert_eq!(ctx.state.req1.0, 123);
+
+        handle(&mut ctx, pkt_req2.into_reader()).await.unwrap();
     }
 }

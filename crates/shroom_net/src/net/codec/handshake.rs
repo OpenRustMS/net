@@ -33,15 +33,19 @@ shroom_enum_code!(
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
 pub struct HandshakeVersion {
     pub version: u16,
-    pub subversion: [u8; 2],
+    pub sub_version_len: u16,
+    pub sub_version: SubVersion,
 }
+
+pub type SubVersion = [u8; 1];
 
 
 impl HandshakeVersion {
-    pub const fn new(version: u16, subversion: [u8; 2]) -> Self {
+    pub const fn new(version: u16, subversion: SubVersion) -> Self {
         Self {
             version,
-            subversion
+            sub_version_len: 1,
+            sub_version: subversion
         }
     }
 
@@ -52,7 +56,8 @@ impl HandshakeVersion {
     pub const fn must_parse(version: u16, subversion: &str) -> Self {
         Self {
             version,
-            subversion: must_init_array_str(subversion)
+            sub_version_len: 1,
+            sub_version: must_init_array_str(subversion)
         }
     }
 
@@ -61,7 +66,7 @@ impl HandshakeVersion {
     }
 
     pub const fn v95() -> Self {
-        Self::must_parse(83, "1")
+        Self::must_parse(95, "1")
     }
 }
 
@@ -169,7 +174,8 @@ impl Handshake {
 impl PacketWrapped for Handshake {
     type Inner = (
         u16,
-        [u8; 2],
+        u16,
+        SubVersion,
         [u8; ROUND_KEY_LEN],
         [u8; ROUND_KEY_LEN],
         LocaleCode,
@@ -178,7 +184,8 @@ impl PacketWrapped for Handshake {
     fn packet_into_inner(&self) -> Self::Inner {
         (
             self.version.version,
-            self.version.subversion,
+            self.version.sub_version_len,
+            self.version.sub_version,
             self.iv_enc.0,
             self.iv_dec.0,
             self.locale,
@@ -187,10 +194,10 @@ impl PacketWrapped for Handshake {
 
     fn packet_from(v: Self::Inner) -> Self {
         Self {
-            version: HandshakeVersion::new(v.0, v.1),
-            iv_enc: RoundKey(v.2),
-            iv_dec: RoundKey(v.3),
-            locale: v.4,
+            version: HandshakeVersion::new(v.0, v.2),
+            iv_enc: RoundKey(v.3),
+            iv_dec: RoundKey(v.4),
+            locale: v.5,
         }
     }
 }

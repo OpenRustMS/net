@@ -238,59 +238,62 @@ pub type ShroomIndexListZ64<T> = ShroomIndexListZ<u64, T>;
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::proto::tests::{enc_dec_test, enc_dec_test_all};
+    use proptest::prelude::*;
+
+    use crate::{packet::test_util::test_encode_decode_owned, test_encode_decode};
 
     use super::*;
 
+    fn generic_list_test<I: ShroomListIndex>() {
+        test_encode_decode!(
+            ShroomList::<I, u8>::from(vec![1u8, 2, 3]),
+            ShroomList::<I, u8>::from(vec![1]),
+            ShroomList::<I, u8>::from(vec![])
+        );
+    }
+
     #[test]
     fn list() {
-        enc_dec_test_all([
-            ShroomList8::from(vec![1u8, 2, 3]),
-            ShroomList8::from(vec![1]),
-            ShroomList8::from(vec![]),
-        ]);
+        generic_list_test::<u8>();
+        generic_list_test::<u16>();
+        generic_list_test::<u32>();
+        generic_list_test::<u64>();
+    }
+
+    fn generic_index_list_test<I: ShroomListIndex + Debug + From<u8> + Clone>() {
+        let data1: Vec<(I, u8)> = vec![(I::from(1), 1u8), (I::from(2), 2), (I::from(3), 3)];
+
+        test_encode_decode!(
+            ShroomIndexList::<I, u8>::from(data1.clone()),
+            ShroomIndexList::<I, u8>::from(vec![(I::from(0), 1)]),
+            ShroomIndexList::<I, u8>::from(vec![]),
+            ShroomIndexListZ::<I, u8>::from(data1.clone()),
+            ShroomIndexListZ::<I, u8>::from(vec![(I::from(1), 1)]),
+            ShroomIndexListZ::<I, u8>::from(vec![])
+        );
     }
 
     #[test]
     fn index_list() {
-        enc_dec_test_all([
-            ShroomIndexList8::from(vec![(1, 1u8), (3, 2), (2, 3)]),
-            ShroomIndexList8::from(vec![(0, 1)]),
-            ShroomIndexList8::from(vec![]),
-        ]);
-    }
-
-    #[test]
-    fn index_list_z() {
-        enc_dec_test_all([
-            ShroomIndexList8::from(vec![(1, 1u8), (3, 2), (2, 3)]),
-            ShroomIndexList8::from(vec![(1, 1)]),
-            ShroomIndexList8::from(vec![]),
-        ]);
+        generic_index_list_test::<u8>();
+        generic_index_list_test::<u16>();
+        generic_index_list_test::<u32>();
+        generic_index_list_test::<u64>();
     }
 
     // Test encoding/decoding
-    quickcheck::quickcheck! {
-        fn shroom_list(xs: Vec<u8>) -> bool {
-            enc_dec_test(ShroomList32::from(xs));
-            true
+    proptest::proptest! {
+        #[test]
+        fn shroom_list(data in prop::collection::vec(1u8..=10, 0..=10)) {
+            test_encode_decode_owned(ShroomList32::from(data));
         }
 
-        fn shroom_index_list(xs: Vec<(u16, u8)>) -> bool {
-            let mut xs = xs;
-            // Remove potential terminators
-            for (i, _) in xs.iter_mut() {
-                *i = match *i {
-                    u16::MAX => *i-1,
-                    u16::MIN => *i+1,
-                    _ => *i
-                };
-            }
-
-
-            enc_dec_test(ShroomIndexList16::from(xs.clone()));
-            enc_dec_test(ShroomIndexListZ16::from(xs));
-            true
+        // There can be up to u8::MAX-1 items, because the terminator is not allowed to exit
+        // And the index can be between 1 and u8::MAX - 1
+        #[test]
+        fn shroom_index_list(data in prop::collection::vec((1u8..=254, any::<u8>()), 0..=254)) {
+            test_encode_decode_owned(ShroomIndexList8::from(data.clone()));
+            test_encode_decode_owned(ShroomIndexListZ8::from(data));
         }
     }
 }

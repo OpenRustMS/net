@@ -90,7 +90,7 @@ macro_rules! mark_shroom_packed_struct {
 mod tests {
     use bitflags::bitflags;
 
-    use crate::packet::{proto::tests::{enc_dec_test_all, enc_dec_test}, ShroomPackedStruct};
+    use crate::{packet::ShroomPackedStruct, test_encode_decode};
 
     #[test]
     fn bits() {
@@ -106,7 +106,7 @@ mod tests {
 
         mark_shroom_bitflags!(Flags);
 
-        enc_dec_test_all([Flags::A | Flags::B, Flags::all(), Flags::empty()]);
+        test_encode_decode!(Flags::A | Flags::B, Flags::all(), Flags::empty());
     }
 
     #[test]
@@ -126,12 +126,13 @@ mod tests {
 
         mark_shroom_packed_struct!(TestPack);
 
-        enc_dec_test(TestPack {
-            tiny_int: 5.into(),
-            enabled: true,
-            tail: 7.into()
-        });
-
-        enc_dec_test(ShroomPackedStruct(0u8));
+        test_encode_decode!(
+            TestPack {
+                tiny_int: 5.into(),
+                enabled: true,
+                tail: 7.into(),
+            },
+            ShroomPackedStruct(0u8)
+        );
     }
 }
