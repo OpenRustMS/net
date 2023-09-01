@@ -179,7 +179,8 @@ impl<D: EncodePacket> EncodePacket for Option<D> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::proto::tests::enc_dec_test_all;
+    use crate::packet::test_util::test_encode_decode_owned;
+
 
     #[test]
     fn prim_num() {
@@ -188,7 +189,7 @@ mod tests {
                 let min = <$ty>::MIN;
                 let max = <$ty>::MAX;
                 let half = (min + max) / (2 as $ty);
-                enc_dec_test_all([min, max, half])
+                test_encode_decode_owned([min, max, half])
             };
             ($($ty:ty,)*) => {
                 $(test_num!($ty);)*
@@ -200,6 +201,6 @@ mod tests {
 
     #[test]
     fn bool() {
-        enc_dec_test_all([false, true]);
+        test_encode_decode_owned([false, true]);
     }
 }

@@ -190,7 +190,7 @@ mod tests {
     use crate::{
         crypto::SharedCryptoContext,
         net::{
-            codec::handshake::LocaleCode,
+            codec::handshake::{LocaleCode, HandshakeVersion},
             service::{BasicHandshakeGenerator, HandshakeGenerator},
             ShroomSession,
         },
@@ -205,14 +205,14 @@ mod tests {
     #[test]
     fn echo() -> anyhow::Result<()> {
         const ECHO_DATA: [&'static [u8]; 4] = [&[0xFF; 4096], &[1, 2], &[], &[0x0; 1024]];
-        const V: u16 = 83;
         const LOCALE: LocaleCode = LocaleCode::Global;
 
         let mut sim = turmoil::Builder::new().build();
+        const V: HandshakeVersion = HandshakeVersion::v83();
 
         sim.host("server", || async move {
             let crypto_ctx = SharedCryptoContext::default();
-            let hshake_gen = BasicHandshakeGenerator::new(V, "1", LOCALE);
+            let hshake_gen = BasicHandshakeGenerator::new(V, LOCALE);
             let handshake = hshake_gen.generate_handshake();
             let listener = bind().await?;
 

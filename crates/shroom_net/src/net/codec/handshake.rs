@@ -1,11 +1,12 @@
-use std::io::{Read, Write};
+use std::{io::{Read, Write}, str::FromStr};
 
-use arrayvec::ArrayString;
+use anyhow::anyhow;
+use rand::{RngCore, CryptoRng};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     packet::PacketWrapped,
-    DecodePacket, EncodePacket, NetError, NetResult, PacketWriter, crypto::{RoundKey, ROUND_KEY_LEN}, shroom_enum_code,
+    DecodePacket, EncodePacket, NetError, NetResult, PacketWriter, crypto::{RoundKey, ROUND_KEY_LEN}, shroom_enum_code, util::must_init_array_str,
 };
 
 use super::MAX_HANDSHAKE_LEN;
@@ -29,13 +30,64 @@ shroom_enum_code!(
     RlsPe = 10
 );
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
+pub struct HandshakeVersion {
+    pub version: u16,
+    pub sub_version_len: u16,
+    pub sub_version: SubVersion,
+}
+
+pub type SubVersion = [u8; 1];
+
+
+impl HandshakeVersion {
+    pub const fn new(version: u16, subversion: SubVersion) -> Self {
+        Self {
+            version,
+            sub_version_len: 1,
+            sub_version: subversion
+        }
+    }
+
+    pub fn major(&self) -> u16 {
+        self.version
+    }
+
+    pub const fn must_parse(version: u16, subversion: &str) -> Self {
+        Self {
+            version,
+            sub_version_len: 1,
+            sub_version: must_init_array_str(subversion)
+        }
+    }
+
+    pub const fn v83() -> Self {
+        Self::must_parse(83, "1")
+    }
+
+    pub const fn v95() -> Self {
+        Self::must_parse(95, "1")
+    }
+}
+
+impl FromStr for HandshakeVersion {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (major, minor) = s.split_once('.').ok_or_else(|| anyhow!("Invalid version: {s}"))?;
+        
+        Ok(Self::new(
+            major.parse()?,
+            minor.as_bytes().try_into()?
+        ))
+    }
+}
+
 /// Codec Handshake
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
 pub struct Handshake {
     /// Version
-    pub version: u16,
-    // Subversion up to a length of 2
-    pub subversion: ArrayString<2>,
+    pub version: HandshakeVersion,
     /// Encrypt IV
     pub iv_enc: RoundKey,
     /// Decrypt IV
@@ -45,6 +97,17 @@ pub struct Handshake {
 }
 
 impl Handshake {
+    /// Generates a handshake with random IVs
+    pub fn new_random<R: RngCore + CryptoRng>(version: HandshakeVersion, locale: LocaleCode, mut rng: R) -> Self {
+        Self {
+            version,
+            iv_dec: RoundKey::get_random(&mut rng),
+            iv_enc: RoundKey::get_random(&mut rng),
+            locale
+        }
+    }
+
+
     /// Decode the handshake length
     fn decode_handshake_len(data: [u8; 2]) -> NetResult<usize> {
         let ln = u16::from_le_bytes(data) as usize;
@@ -111,7 +174,8 @@ impl Handshake {
 impl PacketWrapped for Handshake {
     type Inner = (
         u16,
-        ArrayString<2>,
+        u16,
+        SubVersion,
         [u8; ROUND_KEY_LEN],
         [u8; ROUND_KEY_LEN],
         LocaleCode,
@@ -119,8 +183,9 @@ impl PacketWrapped for Handshake {
 
     fn packet_into_inner(&self) -> Self::Inner {
         (
-            self.version,
-            self.subversion,
+            self.version.version,
+            self.version.sub_version_len,
+            self.version.sub_version,
             self.iv_enc.0,
             self.iv_dec.0,
             self.locale,
@@ -129,28 +194,24 @@ impl PacketWrapped for Handshake {
 
     fn packet_from(v: Self::Inner) -> Self {
         Self {
-            version: v.0,
-            subversion: v.1,
-            iv_enc: RoundKey(v.2),
-            iv_dec: RoundKey(v.3),
-            locale: v.4,
+            version: HandshakeVersion::new(v.0, v.2),
+            iv_enc: RoundKey(v.3),
+            iv_dec: RoundKey(v.4),
+            locale: v.5,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use arrayvec::ArrayString;
-
-    use crate::{DecodePacket, EncodePacket, PacketWriter, ShroomPacket, crypto::RoundKey, net::codec::handshake::LocaleCode};
+    use crate::{DecodePacket, EncodePacket, PacketWriter, ShroomPacket, crypto::RoundKey, net::codec::handshake::{LocaleCode, HandshakeVersion}};
 
     use super::Handshake;
 
     #[test]
     fn test_handshake_encode_decode() {
         let handshake = Handshake {
-            version: 1,
-            subversion: ArrayString::try_from("2").unwrap(),
+            version: HandshakeVersion::must_parse(83, "2"),
             iv_enc: RoundKey([1u8; 4]),
             iv_dec: RoundKey([2u8; 4]),
             locale: LocaleCode::Global,

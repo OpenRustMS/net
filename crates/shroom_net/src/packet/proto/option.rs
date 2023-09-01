@@ -138,27 +138,20 @@ pub type ShroomOptionRBool<T> = ShroomOption<T, RevShroomOptionDiscriminant<bool
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::proto::tests::enc_dec_test_all;
-
     use super::*;
+    use crate::test_encode_decode;
 
     #[test]
     fn option() {
-        enc_dec_test_all([
+        test_encode_decode!(
             ShroomOption8::from_opt(Some("abc".to_string())),
-            ShroomOption8::from_opt(None),
-        ]);
-        enc_dec_test_all([
+            ShroomOption8::<String>::from_opt(None),
             ShroomOptionR8::from_opt(Some("abc".to_string())),
-            ShroomOptionR8::from_opt(None),
-        ]);
-        enc_dec_test_all([
+            ShroomOptionR8::<String>::from_opt(None),
             ShroomOptionBool::from_opt(Some("abc".to_string())),
-            ShroomOptionBool::from_opt(None),
-        ]);
-        enc_dec_test_all([
+            ShroomOptionBool::<String>::from_opt(None),
             ShroomOptionRBool::from_opt(Some("abc".to_string())),
-            ShroomOptionRBool::from_opt(None),
-        ]);
+            ShroomOptionRBool::<String>::from_opt(None)
+        );
     }
 }

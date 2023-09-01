@@ -3,50 +3,18 @@ use std::{fmt::Debug, io, marker::PhantomData, sync::Arc, time::Duration};
 use futures::{Stream, StreamExt};
 use tokio::net::{TcpListener, TcpStream, ToSocketAddrs};
 use tokio_stream::wrappers::TcpListenerStream;
-use tokio_util::sync::CancellationToken;
 
 use crate::{
     crypto::SharedCryptoContext,
-    net::{codec::handshake::Handshake, service::handler::SessionHandleResult, ShroomSession},
-    util::framed_pipe::{framed_pipe, FramedPipeReceiver, FramedPipeSender},
-    NetError, PacketBuffer, ShroomPacket,
+    net::{codec::handshake::Handshake, service::SessionHandleResult, ShroomSession},
+    util::framed_pipe::FramedPipeReceiver,
+    NetError, ShroomPacket,
 };
 
 use super::{
     handler::{MakeServerSessionHandler, ShroomSessionHandler},
-    HandshakeGenerator,
+    HandshakeGenerator, SharedSessionHandle, ShroomContext,
 };
-
-#[derive(Debug, Clone)]
-pub struct SharedSessionHandle {
-    pub ct: CancellationToken,
-    pub tx: FramedPipeSender,
-}
-
-impl SharedSessionHandle {
-    /// Attempt to send a packet buffer to the session
-    pub fn try_send_pkt_buf(&mut self, pkt_buf: &PacketBuffer) -> anyhow::Result<()> {
-        Ok(self.tx.try_send_all(pkt_buf.packets())?)
-    }
-
-    /// Attempt to send a single packet to the buffer
-    pub fn try_send_pkt(&mut self, pkt: impl AsRef<[u8]>) -> anyhow::Result<()> {
-        Ok(self.tx.try_send(pkt)?)
-    }
-}
-
-impl SharedSessionHandle {
-    pub fn new() -> (Self, FramedPipeReceiver) {
-        let (tx, rx) = framed_pipe(8 * 1024, 128);
-        (
-            Self {
-                ct: CancellationToken::new(),
-                tx,
-            },
-            rx,
-        )
-    }
-}
 
 #[derive(Debug)]
 pub struct ShroomSessionHandle<H: ShroomSessionHandler> {
@@ -66,11 +34,9 @@ where
 
 pub struct ShroomServerSession<H: ShroomSessionHandler> {
     cfg: Arc<ShroomServerConfig>,
-    session: ShroomSession<H::Transport>,
-    handler: H,
-    session_handle: SharedSessionHandle,
     session_rx: FramedPipeReceiver,
     pending_ping: bool,
+    ctx: ShroomContext<H>,
 }
 
 impl<H> ShroomServerSession<H>
@@ -80,30 +46,28 @@ where
 {
     pub fn new(
         cfg: Arc<ShroomServerConfig>,
-        session: ShroomSession<H::Transport>,
-        handler: H,
-        session_handle: SharedSessionHandle,
         session_rx: FramedPipeReceiver,
+        ctx: ShroomContext<H>,
     ) -> Self {
         Self {
             cfg,
-            session,
-            handler,
-            session_handle,
             session_rx,
             pending_ping: false,
+            ctx,
         }
     }
-
     /// Handle migration by finishing the handler and then closing the session
     /// after the migration delay
-    async fn migrate(self) -> Result<(), H::Error> {
-        log::trace!("Session migrated");
-        self.handler.finish(true).await?;
-        // Socket has to be kept open cause the client doesn't support
-        // reading a packet when the socket is closed
-        tokio::time::sleep(self.cfg.migrate_delay).await;
-        self.session.close().await?;
+    async fn finish(self, migrate: bool) -> Result<(), H::Error> {
+        log::trace!("Session closing(migrate={migrate})");
+        let ShroomContext { state, session, .. } = self.ctx;
+        state.finish(migrate).await?;
+        if migrate {
+            // Socket has to be kept open cause the client doesn't support
+            // reading a packet when the socket is closed
+            tokio::time::sleep(self.cfg.migrate_delay).await;
+        }
+        session.close().await?;
         Ok(())
     }
 
@@ -116,9 +80,9 @@ where
         }
 
         // Elsewise send a new ping packet
-        log::trace!("Sending ping...");
         self.pending_ping = true;
-        self.session
+        self.ctx
+            .session
             .send_packet(self.cfg.ping_packet.as_ref())
             .await?;
         Ok(())
@@ -137,8 +101,8 @@ where
             tokio::select! {
                 biased;
                 // Handle next incoming packet
-                p = self.session.read_packet() => {
-                    let res = self.handler.handle_packet(p?, &mut self.session).await?;
+                p =  self.ctx.session.read_packet() => {
+                    let res = H::handle_packet(&mut self.ctx, p?).await?;
                     // Handling the handle result
                     match res {
                         SessionHandleResult::Migrate => {
@@ -150,7 +114,7 @@ where
                         SessionHandleResult::Ok => ()
                     }
                 },
-                _ = ping_interval.tick() => { 
+                _ = ping_interval.tick() => {
                     self.handle_ping_tick().await?;
                 },
                 //Handle external Session packets
@@ -158,19 +122,17 @@ where
                     // note tx is never dropped, so there'll be always a packet here
                     // TODO handle error here
                     let p = p.expect("Session packet").unwrap();
-                    self.session.send_packet(&p).await?;
+                    self.ctx.session.send_packet(&p).await?;
                 },
-                msg = self.handler.poll_msg() => {
-                    self.handler.handle_msg(&mut self.session, msg?).await?;
+                msg = H::poll_msg(&mut self.ctx.state) => {
+                    H::handle_msg(&mut self.ctx, msg?).await?;
                 },
-                _ = self.session_handle.ct.cancelled() => {
-                    break;
+                _ = self.ctx.session_handle.ct.cancelled() => {
+                    break Ok(false);
                 },
 
             };
         }
-
-        return Ok(false);
     }
 
     pub async fn exec(mut self) -> Result<(), H::Error> {
@@ -178,15 +140,14 @@ where
 
         match res {
             Ok(true) => {
-                self.migrate().await?;
-            },
+                self.finish(true).await?;
+            }
             Ok(false) => {
-                self.session.close().await?;
+                self.finish(false).await?;
             }
             Err(e) => {
                 log::error!("Session error: {e:?}");
-                self.handler.finish(false).await?;
-                self.session.close().await?;
+                self.finish(false).await?;
             }
         }
         Ok(())
@@ -270,21 +231,18 @@ where
             // Using a block here so we can capture the result and log It later
             let res = async move {
                 // Initialize the session with the handshake
-                let mut session =
+                let session =
                     ShroomSession::initialize_server_session(io, cfg.crypto_ctx.clone(), handshake)
                         .await?;
 
-                // Create the shared session handle
+                // Create the shared session handle and context
                 let (session_handle, session_rx) = SharedSessionHandle::new();
 
                 // Create the session handler
-                let handler = mk
-                    .make_handler(&mut session, session_handle.clone())
-                    .await?;
+                let ctx = mk.make_handler(session, session_handle).await?;
 
                 // Create the session and execute It
-                let server_session =
-                    ShroomServerSession::new(cfg, session, handler, session_handle, session_rx);
+                let server_session = ShroomServerSession::new(cfg, session_rx, ctx);
 
                 server_session.exec().await
             };
@@ -356,16 +314,16 @@ where
     /// Serve with the given `addr` via Tcp as Transprot
     pub async fn serve_tcp(&mut self, addr: impl ToSocketAddrs) -> Result<(), MH::Error> {
         let listener = TcpListener::bind(addr).await?;
-        self.run(
-            TcpListenerStream::new(listener)
-                .filter(|io| std::future::ready(match io {
-                    // Skip connection errors, just log them
-                    Err(err) if Self::is_connection_error(err) => {
-                        log::trace!("Server Connection error: {}", err);
-                        false
-                    },
-                    _ => true
-                }))
-        ).await
+        self.run(TcpListenerStream::new(listener).filter(|io| {
+            std::future::ready(match io {
+                // Skip connection errors, just log them
+                Err(err) if Self::is_connection_error(err) => {
+                    log::trace!("Server Connection error: {}", err);
+                    false
+                }
+                _ => true,
+            })
+        }))
+        .await
     }
 }

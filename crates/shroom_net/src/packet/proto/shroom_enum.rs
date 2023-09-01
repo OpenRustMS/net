@@ -120,7 +120,7 @@ macro_rules! shroom_packet_enum {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::proto::tests::enc_dec_test_all;
+    use crate::test_encode_decode;
 
     #[test]
     fn packet_enum() {
@@ -132,15 +132,13 @@ mod tests {
             }
         );
 
-        enc_dec_test_all([TestChoice::One(()), TestChoice::Two(1337)]);
+        test_encode_decode!(TestChoice::One(()), TestChoice::Two(1337));
     }
 
     #[test]
     fn enum_code() {
         shroom_enum_code!(Code, u8, A = 1, B = 2, C = 3);
 
-        enc_dec_test_all([
-            Code::A, Code::B, Code::C
-        ]);
+        test_encode_decode!(Code::A, Code::B, Code::C);
     }
 }

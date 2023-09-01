@@ -1,65 +1,110 @@
 pub mod handler;
+pub mod handshake_gen;
 pub mod resp;
 pub mod server_sess;
 pub mod session_set;
 
-use std::time::Duration;
+pub use handshake_gen::*;
+use tokio_util::sync::CancellationToken;
+use std::{time::Duration, ops::{DerefMut, Deref}};
 
-use arrayvec::ArrayString;
+use crate::{EncodePacket, HasOpcode, util::framed_pipe::{FramedPipeSender, self, FramedPipeReceiver}, PacketBuffer};
 
-use crate::crypto::RoundKey;
+use self::{handler::ShroomSessionHandler, resp::{IntoResponse, Response}};
 
-use super::codec::handshake::{Handshake, LocaleCode};
-
-
+use super::ShroomSession;
 
 pub const DEFAULT_MIGRATE_DELAY: Duration = Duration::from_millis(7500);
 
-/// Handshake generator, to generate a handshake
-pub trait HandshakeGenerator {
-    /// Generate a new handshake
-    fn generate_handshake(&self) -> Handshake;
+/// Session handle result
+pub enum SessionHandleResult {
+    /// Indicates the session to start a migration
+    Migrate,
+    /// Indicates this handler finished succesfully
+    Ok,
+    /// Signalling a Pong response was received
+    Pong,
 }
 
-/// Implementation of a very basic Handshake generator
 #[derive(Debug, Clone)]
-pub struct BasicHandshakeGenerator {
-    version: u16,
-    sub_version: ArrayString<2>,
-    locale: LocaleCode,
+pub struct SharedSessionHandle {
+    ct: CancellationToken,
+    tx: FramedPipeSender,
 }
 
-impl BasicHandshakeGenerator {
-    /// Create a new handshake generator, will panic if subversion is larger than 2
-    pub fn new(version: u16, sub_version: &str, locale: LocaleCode) -> Self {
+impl SharedSessionHandle {
+    /// Attempt to send a packet buffer to the session
+    pub fn try_send_pkt_buf(&mut self, pkt_buf: &PacketBuffer) -> anyhow::Result<()> {
+        Ok(self.tx.clone().try_send_all(pkt_buf.packets())?)
+    }
+
+    /// Attempt to send a single packet to the buffer
+    pub fn try_send_pkt(&self, pkt: impl AsRef<[u8]>) -> anyhow::Result<()> {
+        Ok(self.tx.clone().try_send(pkt)?)
+    }
+}
+
+impl SharedSessionHandle {
+    pub fn new() -> (Self, FramedPipeReceiver) {
+        let (tx, rx) = framed_pipe::framed_pipe(8 * 1024, 128);
+        (
+            Self {
+                ct: CancellationToken::new(),
+                tx,
+            },
+            rx,
+        )
+    }
+}
+
+pub struct ShroomContext<H: ShroomSessionHandler> {
+    session: ShroomSession<H::Transport>,
+    state: H,
+    migrate: bool,
+    pub session_handle: SharedSessionHandle,
+}
+
+impl<H: ShroomSessionHandler> ShroomContext<H> {
+    pub fn new(session: ShroomSession<H::Transport>, state: H, session_handle: SharedSessionHandle) -> Self {
         Self {
-            version,
-            sub_version: sub_version.try_into().expect("Subversion"),
-            locale,
+            session,
+            state,
+            migrate: false,
+            session_handle
         }
-    }
-
-    /// Create a handshake generator for global v95
-    pub fn v95() -> Self {
-        Self::new(95, "1", LocaleCode::Global)
-    }
-
-    /// Create a handshake generator for global v83
-    pub fn v83() -> Self {
-        Self::new(83, "1", LocaleCode::Global)
     }
 }
 
-impl HandshakeGenerator for BasicHandshakeGenerator {
-    fn generate_handshake(&self) -> Handshake {
-        // Using thread_rng to generate the round keys
-        let mut rng = rand::thread_rng();
-        Handshake {
-            version: self.version,
-            subversion: self.sub_version,
-            iv_enc: RoundKey::get_random(&mut rng),
-            iv_dec: RoundKey::get_random(&mut rng),
-            locale: self.locale,
-        }
+impl<H: ShroomSessionHandler + Send> ShroomContext<H> {
+    pub async fn send<P: EncodePacket + HasOpcode>(&mut self, p: P) -> Result<(), H::Error> {
+        Ok(self.session.send_encode_packet(p).await?)
+    }
+
+
+    pub async fn reply<R: IntoResponse + Send>(&mut self, resp: R) -> Result<(), H::Error> {
+        Ok(resp.into_response().send(self).await?)
+    }
+
+    pub fn set_migrate(&mut self, migrate: bool) {
+        self.migrate = migrate;
+    }
+
+    pub fn is_migrating(&self) -> bool {
+        self.migrate
+    }
+}
+
+impl<H: ShroomSessionHandler> Deref for ShroomContext<H> {
+    type Target = H;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+
+impl<H: ShroomSessionHandler> DerefMut for ShroomContext<H> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
     }
 }

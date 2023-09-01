@@ -39,9 +39,30 @@ impl SizeHint {
     }
 }
 
+pub const fn must_init_array_str<const CAP: usize>(init: &str) -> [u8; CAP] {
+    let data = init.as_bytes();
+    assert!(data.len() <= CAP);
+
+    let mut s = [0; CAP];
+    let mut i = 0;
+    while i < data.len()  {
+        s[i] = data[i];
+        i += 1;
+    }
+
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    pub const STR: [u8; 2] = must_init_array_str("AA");
+
+    #[test]
+    fn str_aa() {
+        assert_eq!(STR.as_slice(), b"AA");
+    }
 
     #[test]
     fn size_hint_add() {

@@ -182,11 +182,10 @@ macro_rules! partial_data {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::proto::{
+    use crate::packet::{proto::{
         partial::{PartialData, PartialFlag},
-        tests::enc_dec_test,
         CondOption,
-    };
+    }, test_util::test_encode_decode_owned};
 
     #[test]
     fn test_simple() {
@@ -215,7 +214,7 @@ mod tests {
         assert!(!flags.has_a());
         assert!(!flags.has_b());
 
-        enc_dec_test(TestStatsAll { a: 0xaa, b: 0x1234 });
+        test_encode_decode_owned(TestStatsAll { a: 0xaa, b: 0x1234 });
 
         impl PartialEq for TestStatsPartial {
             fn eq(&self, other: &Self) -> bool {
@@ -224,7 +223,7 @@ mod tests {
         }
 
         pub type TestPartialData = PartialFlag<(), TestStatsPartial>;
-        enc_dec_test(TestPartialData::from(TestStatsPartial {
+        test_encode_decode_owned(TestPartialData::from(TestStatsPartial {
             a: None.into(),
             b: Some(0x1234).into(),
         }));

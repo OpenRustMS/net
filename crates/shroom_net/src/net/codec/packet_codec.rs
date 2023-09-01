@@ -24,7 +24,7 @@ pub struct PacketCodec {
 
 impl PacketCodec {
     pub fn from_client_handshake(ctx: SharedCryptoContext, handshake: Handshake) -> Self {
-        let v = ShroomVersion(handshake.version);
+        let v = ShroomVersion(handshake.version.major());
         Self {
             decode: PacketDecodeCodec(ShroomCrypto::new(ctx.clone(), handshake.iv_dec, v.invert())),
             encode: PacketEncodeCodec(ShroomCrypto::new(ctx, handshake.iv_enc, v)),
@@ -32,7 +32,7 @@ impl PacketCodec {
     }
 
     pub fn from_server_handshake(ctx: SharedCryptoContext, handshake: Handshake) -> Self {
-        let v = ShroomVersion(handshake.version);
+        let v = ShroomVersion(handshake.version.major());
         Self {
             decode: PacketDecodeCodec(ShroomCrypto::new(ctx.clone(), handshake.iv_enc, v)),
             encode: PacketEncodeCodec(ShroomCrypto::new(ctx, handshake.iv_dec, v.invert())),

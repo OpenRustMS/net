@@ -36,9 +36,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::proto::tests::enc_dec_test_all;
-
     use euclid::default::Vector2D;
+
+    use crate::packet::test_util::test_encode_decode_owned_all;
 
     #[test]
     fn vec_pt() {
@@ -48,7 +48,7 @@ mod tests {
             Vector2D::<u16>::new(2, 1)
         ];
 
-        enc_dec_test_all(v);
-        enc_dec_test_all(v.iter().map(|v| v.to_point()));
+        test_encode_decode_owned_all(v);
+        test_encode_decode_owned_all(v.iter().map(|v| v.to_point()));
     }
 }

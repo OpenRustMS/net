@@ -1,6 +1,5 @@
 pub mod bits;
 pub mod conditional;
-pub mod twod;
 pub mod list;
 pub mod option;
 pub mod padding;
@@ -9,6 +8,7 @@ pub mod primitive;
 pub mod shroom_enum;
 pub mod string;
 pub mod time;
+pub mod twod;
 pub mod wrapped;
 
 use bytes::BufMut;
@@ -184,36 +184,21 @@ impl_for_tuples!(impl_packet);
 
 #[cfg(test)]
 mod tests {
-    use crate::EncodePacket;
-
-    use super::DecodePacketOwned;
-
-    /// Helper function to test If encoding matches decoding
-    pub(crate) fn enc_dec_test<T>(val: T)
-    where
-        T: EncodePacket + DecodePacketOwned + PartialEq + std::fmt::Debug,
-    {
-        let data = val.to_packet().expect("encode");
-        let mut pr = data.into_reader();
-        let decoded = T::decode_packet(&mut pr).expect("decode");
-
-        assert_eq!(val, decoded);
-    }
-
-    /// Helper function to test If encoding matches decoding
-    pub(crate) fn enc_dec_test_all<T>(vals: impl IntoIterator<Item = T>)
-    where
-        T: EncodePacket + DecodePacketOwned + PartialEq + std::fmt::Debug,
-    {
-        for val in vals {
-            enc_dec_test(val);
-        }
-    }
+    use crate::{EncodePacket, test_encode_decode};
 
     #[test]
     fn tuple_size() {
         assert_eq!(<((), (),)>::SIZE_HINT.0, Some(0));
         assert_eq!(<((), u32,)>::SIZE_HINT.0, Some(4));
         assert_eq!(<((), u32, String)>::SIZE_HINT.0, None);
+    }
+
+    #[test]
+    fn tuple_encode() {
+        test_encode_decode!(
+            ((),),
+            ((), ()),
+            ((), 10u32)
+        );
     }
 }

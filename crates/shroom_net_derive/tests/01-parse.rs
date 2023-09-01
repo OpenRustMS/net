@@ -1,10 +1,9 @@
-use bytes::BytesMut;
 use either::Either;
 use shroom_net_derive::ShroomPacket;
 
 use shroom_net::{
     packet::conditional::{CondEither, CondOption},
-    DecodePacket, EncodePacket, PacketWriter,
+    test_encode_decode, EncodePacket,
 };
 
 #[derive(ShroomPacket)]
@@ -52,7 +51,7 @@ fn check_name_even(name: &str) -> bool {
 #[derive(ShroomPacket, Debug, PartialEq, Eq)]
 pub struct Packet4<'a, T> {
     name: &'a str,
-   #[pkt(check(field = "name", cond = "check_name_even"))]
+    #[pkt(check(field = "name", cond = "check_name_even"))]
     bitmask: CondOption<u16>,
     val: T,
 }
@@ -73,25 +72,6 @@ pub struct Packet6 {
     n: u32,
     #[pkt(size = "n")]
     data: Vec<u8>,
-}
-
-fn test_encode_decode<'de, T>(data: T, buf: &'de mut BytesMut)
-where
-    T: EncodePacket + DecodePacket<'de> + PartialEq + std::fmt::Debug,
-{
-    let mut pw = PacketWriter::new(buf);
-    data.encode_packet(&mut pw).expect("must encode");
-
-    let inner = pw.into_inner();
-    let cmp = T::decode_from_data(inner).expect("must decode");
-    assert_eq!(data, cmp);
-}
-
-macro_rules! test_encode_decode {
-    ($d:expr) => {
-        let mut data = BytesMut::new();
-        $crate::test_encode_decode($d, &mut data);
-    };
 }
 
 fn main() {
