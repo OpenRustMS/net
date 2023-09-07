@@ -79,6 +79,7 @@ where
     T: DecodePacket<'de>,
     I: ShroomListIndex,
 {
+    #[inline]
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         // Decodes until the terminator the terminator is read
         // TODO: cap size
@@ -103,6 +104,7 @@ where
     T: EncodePacket,
     I: ShroomListIndex,
 {
+    #[inline]
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         for (ix, item) in self.iter() {
             ix.encode_packet(pw)?;
@@ -115,6 +117,7 @@ where
 
     const SIZE_HINT: SizeHint = SizeHint::NONE;
 
+    #[inline]
     fn packet_len(&self) -> usize {
         I::SIZE_HINT.0.expect("Index size") + self.iter().map(|v| v.packet_len()).sum::<usize>()
     }
@@ -179,6 +182,7 @@ where
     L: ShroomListLen,
     T: DecodePacket<'de>,
 {
+    #[inline]
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         // Read the length then decode all items
         let n = L::decode_packet(pr)?;
@@ -193,6 +197,7 @@ where
     L: ShroomListLen,
     T: EncodePacket,
 {
+    #[inline]
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         // Encode the length followed by all items
         L::from_len(self.len()).encode_packet(pw)?;
@@ -203,6 +208,7 @@ where
 
     const SIZE_HINT: SizeHint = SizeHint::NONE;
 
+    #[inline]
     fn packet_len(&self) -> usize {
         L::SIZE_HINT.0.expect("Index size")
             + self.items.iter().map(|v| v.packet_len()).sum::<usize>()

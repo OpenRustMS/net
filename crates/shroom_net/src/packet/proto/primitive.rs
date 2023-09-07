@@ -7,12 +7,14 @@ use crate::{NetResult, PacketReader, PacketWriter, SizeHint};
 use super::{DecodePacket, EncodePacket};
 
 impl<'de> DecodePacket<'de> for () {
+    #[inline]
     fn decode_packet(_pr: &mut PacketReader<'de>) -> NetResult<Self> {
         Ok(())
     }
 }
 
 impl EncodePacket for () {
+    #[inline]
     fn encode_packet<B: BufMut>(&self, _pw: &mut PacketWriter<B>) -> NetResult<()> {
         Ok(())
     }
@@ -29,6 +31,7 @@ where
     A: EncodePacket,
     B: EncodePacket,
 {
+    #[inline]
     fn encode_packet<T: BufMut>(&self, pw: &mut PacketWriter<T>) -> NetResult<()> {
         match self {
             Either::Left(a) => a.encode_packet(pw),
@@ -38,6 +41,7 @@ where
 
     const SIZE_HINT: SizeHint = SizeHint::NONE;
 
+    #[inline]
     fn packet_len(&self) -> usize {
         match self {
             Either::Left(l) => l.packet_len(),
@@ -80,6 +84,7 @@ where
 macro_rules! impl_dec {
     ($ty:ty, $dec:path) => {
         impl<'de> DecodePacket<'de> for $ty {
+            #[inline]
             fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
                 $dec(pr)
             }
@@ -90,12 +95,14 @@ macro_rules! impl_dec {
 macro_rules! impl_enc {
     ($ty:ty, $enc:path) => {
         impl EncodePacket for $ty {
+            #[inline]
             fn encode_packet<B: bytes::BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
                 $enc(pw, *self)
             }
 
             const SIZE_HINT: SizeHint = $crate::SizeHint::new(std::mem::size_of::<$ty>());
 
+            #[inline]
             fn packet_len(&self) -> usize {
                 std::mem::size_of::<$ty>()
             }
@@ -131,6 +138,7 @@ impl<'de, const N: usize, T: DecodePacket<'de>> DecodePacket<'de> for [T; N] {
 }
 
 impl<const N: usize, T: EncodePacket> EncodePacket for [T; N] {
+    #[inline]
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         for v in self.iter() {
             v.encode_packet(pw)?;
@@ -146,6 +154,7 @@ impl<const N: usize, T: EncodePacket> EncodePacket for [T; N] {
 }
 
 impl<D: EncodePacket> EncodePacket for Vec<D> {
+    #[inline]
     fn encode_packet<T: BufMut>(&self, pw: &mut PacketWriter<T>) -> NetResult<()> {
         for v in self.iter() {
             v.encode_packet(pw)?;
@@ -162,6 +171,7 @@ impl<D: EncodePacket> EncodePacket for Vec<D> {
 }
 
 impl<D: EncodePacket> EncodePacket for Option<D> {
+    #[inline]
     fn encode_packet<T: BufMut>(&self, pw: &mut PacketWriter<T>) -> NetResult<()> {
         if let Some(ref v) = self {
             v.encode_packet(pw)?;

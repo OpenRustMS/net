@@ -78,7 +78,7 @@ impl From<DateTime<Utc>> for ShroomExpirationTime {
 
 impl From<Option<DateTime<Utc>>> for ShroomExpirationTime {
     fn from(value: Option<DateTime<Utc>>) -> Self {
-        value.into()
+        value.map(Self::from).unwrap_or(Self(None))
     }
 }
 
@@ -156,6 +156,16 @@ where
 {
     fn from(value: Duration) -> Self {
         Self(T::try_from(value.as_millis()).expect("Milli conversion"))
+    }
+}
+
+impl<T> From<usize> for DurationMs<T>
+where
+    T: TryFrom<usize>,
+    T::Error: Debug,
+{
+    fn from(value: usize) -> Self {
+        Self(T::try_from(value).expect("Milli conversion"))
     }
 }
 

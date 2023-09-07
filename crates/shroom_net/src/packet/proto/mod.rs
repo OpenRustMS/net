@@ -182,6 +182,30 @@ macro_rules! impl_for_tuples {
 
 impl_for_tuples!(impl_packet);
 
+/// Special to which ignores en/decoding the inner value
+/// However T has to implement Default for Decoding to work
+pub struct PacketIgnore<T>(pub T);
+
+impl<T> EncodePacket for PacketIgnore<T> {
+    const SIZE_HINT: SizeHint = SizeHint::NONE;
+
+    fn packet_len(&self) -> usize {
+        0
+    }
+
+    fn encode_packet<B: BufMut>(&self, _pw: &mut PacketWriter<B>) -> NetResult<()> {
+        Ok(())
+    }
+}
+
+impl<'de, T: Default> DecodePacket<'de> for PacketIgnore<T> {
+    fn decode_packet(_pr: &mut PacketReader<'de>) -> NetResult<Self> {
+        Ok(Self(T::default()))
+    }
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use crate::{EncodePacket, test_encode_decode};

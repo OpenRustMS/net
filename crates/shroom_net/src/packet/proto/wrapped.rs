@@ -25,12 +25,14 @@ where
     W: PacketTryWrapped,
     W::Inner: EncodePacket,
 {
+    #[inline]
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         self.packet_into_inner().encode_packet(pw)
     }
 
     const SIZE_HINT: SizeHint = W::Inner::SIZE_HINT;
 
+    #[inline]
     fn packet_len(&self) -> usize {
         Self::SIZE_HINT.0.unwrap_or(self.packet_into_inner().packet_len())
     }
@@ -41,6 +43,7 @@ where
     MW: PacketTryWrapped,
     MW::Inner: DecodePacket<'de>,
 {
+    #[inline]
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         let inner = <MW as PacketTryWrapped>::Inner::decode_packet(pr)?;
         MW::packet_try_from(inner)
@@ -50,10 +53,12 @@ where
 impl<W: PacketWrapped> PacketTryWrapped for W {
     type Inner = W::Inner;
 
+    #[inline]
     fn packet_into_inner(&self) -> Self::Inner {
         self.packet_into_inner()
     }
 
+    #[inline]
     fn packet_try_from(v: Self::Inner) -> NetResult<Self> {
         Ok(<W as PacketWrapped>::packet_from(v))
     }
