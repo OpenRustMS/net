@@ -13,36 +13,42 @@ use super::PacketTryWrapped;
 // Basic support for String and str
 
 impl EncodePacket for String {
+    #[inline]
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         self.as_str().encode_packet(pw)
     }
 
     const SIZE_HINT: SizeHint = SizeHint::NONE;
 
+    #[inline]
     fn packet_len(&self) -> usize {
         self.as_str().packet_len()
     }
 }
 
 impl<'de> DecodePacket<'de> for String {
+    #[inline]
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         Ok(<&'de str>::decode_packet(pr)?.to_string())
     }
 }
 
 impl<'de> DecodePacket<'de> for &'de str {
+    #[inline]
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         pr.read_string()
     }
 }
 
 impl<'a> EncodePacket for &'a str {
+    #[inline]
     fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> NetResult<()> {
         pw.write_str(self)
     }
 
     const SIZE_HINT: SizeHint = SizeHint::NONE;
 
+    #[inline]
     fn packet_len(&self) -> usize {
         packet_str_len(self)
     }
@@ -50,6 +56,7 @@ impl<'a> EncodePacket for &'a str {
 
 // Basic support for ArrayString
 impl<const N: usize> EncodePacket for arrayvec::ArrayString<N> {
+    #[inline]
     fn encode_packet<T>(&self, pw: &mut PacketWriter<T>) -> NetResult<()>
     where
         T: BufMut,
@@ -59,12 +66,14 @@ impl<const N: usize> EncodePacket for arrayvec::ArrayString<N> {
 
     const SIZE_HINT: SizeHint = SizeHint::NONE;
 
+    #[inline]
     fn packet_len(&self) -> usize {
         packet_str_len(self.as_str())
     }
 }
 
 impl<'de, const N: usize> DecodePacket<'de> for arrayvec::ArrayString<N> {
+    #[inline]
     fn decode_packet(pr: &mut PacketReader<'de>) -> NetResult<Self> {
         let s = pr.read_string_limited(N)?;
         Ok(arrayvec::ArrayString::from(s).unwrap())
