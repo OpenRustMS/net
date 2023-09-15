@@ -1,5 +1,7 @@
 [workspace]
+resolver = "2"
 members = [
-	"crates/shroom_net",
-	"crates/shroom_net_derive"
+	"crates/shroom-net",
+	"crates/shroom-pkt-derive",
+	"crates/shroom-pkt"
 ]
