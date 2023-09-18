@@ -21,6 +21,8 @@ pub use writer::PacketWriter;
 // Re-export proto
 pub use proto::*;
 
+pub use opcode::*;
+
 /// Decode a `u128` from the given byte array
 pub(crate) fn shroom128_from_bytes(data: [u8; 16]) -> u128 {
     // u128 are stored as 4 u32 little endian encoded blocks
