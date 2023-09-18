@@ -97,7 +97,7 @@ where
 
 #[macro_export]
 macro_rules! partial_data {
-    ($name:ident, $partial_name:ident, $partial_ty:ty, $($stat_name:ident($stat_ty:ty) => $stat_ix:expr),* $(,)?) => {
+    ($name:ident, $partial_name:ident, $partial_ty:ty, derive($($derive:ident),*), $($stat_name:ident($stat_ty:ty) => $stat_ix:expr),* $(,)?) => {
         bitflags::bitflags! {
             #[derive(Debug, Clone, Default)]
             pub struct $partial_name: $partial_ty {
@@ -115,7 +115,7 @@ macro_rules! partial_data {
             }
 
 
-            #[derive(Debug, Default, Clone)]
+            #[derive($($derive),*)]
             pub struct [<$name Partial>] {
                 $(
                     pub [<$stat_name:lower>]: $crate::CondOption<$stat_ty>,
@@ -165,7 +165,7 @@ macro_rules! partial_data {
 
 
 
-            #[derive(Debug)]
+            #[derive($($derive),*)]
             pub struct [<$name All>] {
                 pub all_flags: $crate::proto::partial::AllFlags<$partial_name>,
                 $(pub [<$stat_name:lower>]: $stat_ty,)*
@@ -191,6 +191,7 @@ mod tests {
             TestStats,
             TestStatsFlags,
             u32,
+            derive(Debug, Clone),
             A(u8) => 1 << 0,
             B(u16) => 1 << 1,
         );
@@ -225,9 +226,12 @@ mod tests {
         }
 
         pub type TestPartialData = PartialFlag<(), TestStatsPartial>;
-        test_enc_dec(TestPartialData::from(TestStatsPartial {
-            a: None.into(),
-            b: Some(0x1234).into(),
-        }));
+        test_enc_dec(TestPartialData::from(
+            TestStatsPartial {
+                a: None.into(),
+                b: Some(0x1234).into(),
+            }
+            .clone(),
+        ));
     }
 }
