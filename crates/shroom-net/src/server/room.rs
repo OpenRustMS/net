@@ -143,6 +143,7 @@ impl<S: RoomState> Drop for RoomJoinHandle<S> {
     }
 }
 
+#[derive(Debug)]
 pub struct Room<S: RoomState> {
     kill: JoinHandle<()>,
     tx: mpsc::Sender<RoomMsg<S>>,
