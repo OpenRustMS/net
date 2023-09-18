@@ -5,6 +5,7 @@ use tokio::{sync::watch, task::JoinHandle, time::Instant};
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub struct TickUnit(u64);
 
+#[derive(Clone)]
 pub struct Tick(watch::Receiver<TickUnit>);
 
 impl Tick {
