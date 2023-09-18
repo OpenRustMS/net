@@ -103,6 +103,14 @@ where
         }
     }
 
+    pub fn session(&self) -> &ShroomSession<H::Codec> {
+        &self.session
+    }
+
+    pub fn session_mut(&mut self) -> &mut ShroomSession<H::Codec> {
+        &mut self.session
+    }
+
     pub async fn send<P: EncodePacket + HasOpcode>(&mut self, p: P) -> Result<(), H::Error> {
         Ok(self.session.send_encode_packet(p).await?)
     }
