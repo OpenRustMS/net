@@ -40,6 +40,10 @@ impl Ticker {
         Self { gen, rx }
     }
 
+    pub fn spawn_from_millis(millis: u64) -> Self {
+        Self::spawn(Duration::from_millis(millis))
+    }
+
     pub fn get_tick(&self) -> Tick {
         Tick(self.rx.clone())
     }

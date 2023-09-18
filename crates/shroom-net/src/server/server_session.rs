@@ -55,6 +55,10 @@ pub trait ShroomSessionHandler: Sized {
     type Msg: Send + 'static;
     type MakeState: Send + Sync + 'static;
 
+    async fn recv_msg(&mut self) -> Option<Self::Msg> {
+        futures::future::pending().await
+    }
+
     async fn make_handler(
         make_state: &Self::MakeState,
         sess: &mut ShroomSession<Self::Codec>,
@@ -81,7 +85,7 @@ pub struct ShroomSessionCtx<H: ShroomSessionHandler> {
 
 impl<H> ShroomSessionCtx<H>
 where
-    H: ShroomSessionHandler,
+    H: ShroomSessionHandler + Send,
 {
     pub(crate) fn new(
         session: ShroomSession<H::Codec>,
@@ -117,13 +121,15 @@ where
                 Some(msg) = self.rx.recv() => {
                     handler.handle_msg(&mut self.session, ShroomSessionEvent::Message(msg)).await?
                 }
+                Some(msg) = handler.recv_msg() => {
+                    handler.handle_msg(&mut self.session, ShroomSessionEvent::Message(msg)).await?
+                }
                 tick = self.tick.next() => {
                     handler.handle_msg(&mut self.session, ShroomSessionEvent::Tick(tick)).await?
                 }
                 _ = self.ping.tick() => {
                     if self.pending_ping {
-                        // TODO timeout error
-                        return Ok(false)
+                        return Err(NetError::PingTimeout.into());
                     }
                     self.pending_ping = true;
                     handler.handle_msg(&mut self.session, ShroomSessionEvent::Ping).await?

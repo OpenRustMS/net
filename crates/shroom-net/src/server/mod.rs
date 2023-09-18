@@ -1,5 +1,6 @@
 pub mod handler;
 pub mod resp;
+pub mod room;
 pub mod server_session;
 pub mod session_set;
 pub mod tick;
@@ -25,8 +26,8 @@ use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 use crate::{codec::ShroomCodec, NetError, NetResult};
 
 use self::{
+    room::{Room, RoomState},
     server_session::{ShroomSessionCtx, ShroomSessionHandler},
-    session_set::{SessionRoom, SessionRoomState},
     tick::{Tick, Ticker},
 };
 
@@ -81,11 +82,8 @@ impl<H: ShroomSessionHandler> ShroomServer<H> {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn spawn_room<State: SessionRoomState + Send + 'static>(
-        &self,
-        state: State,
-    ) -> SessionRoom<State> {
-        SessionRoom::spawn(state, self.ticker.get_tick())
+    pub fn spawn_room<State: RoomState + Send + 'static>(&self, state: State) -> Room<State> {
+        Room::spawn(state, self.ticker.get_tick())
     }
 }
 

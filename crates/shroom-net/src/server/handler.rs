@@ -60,16 +60,13 @@ macro_rules! shroom_router_fn {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::{self, Cursor},
-        time::Duration,
-    };
+    use std::{io::Cursor, time::Duration};
 
     use shroom_pkt::{opcode::WithOpcode, PacketReader, PacketWriter};
     use tokio::sync::mpsc;
 
     use crate::{
-        codec::{legacy::LegacyCodec, session::ShroomSession},
+        codec::{legacy::LegacyCodec, session::ShroomSession, LocalShroomTransport},
         server::{
             server_session::{
                 IntoHandleResult, SessionHandleResult, ShroomSessionCtx, ShroomSessionEvent,
@@ -81,6 +78,8 @@ mod tests {
     };
 
     pub type Req1 = WithOpcode<0, u16>;
+    pub type Trans = LocalShroomTransport<Cursor<Vec<u8>>>;
+    pub type Codec = LegacyCodec<Trans>;
 
     #[derive(Debug, Default)]
     struct TestHandler {
@@ -89,12 +88,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ShroomSessionHandler for TestHandler {
-        type Codec = LegacyCodec<io::Cursor<Vec<u8>>>;
-
+        type Codec = Codec;
         type Error = anyhow::Error;
-
         type Msg = ();
-
         type MakeState = ();
 
         async fn make_handler(
@@ -138,8 +134,8 @@ mod tests {
         }
     }
 
-    fn get_fake_session() -> ShroomSession<LegacyCodec<std::io::Cursor<Vec<u8>>>> {
-        let io = std::io::Cursor::new(vec![]);
+    fn get_fake_session() -> ShroomSession<Codec> {
+        let io = LocalShroomTransport(std::io::Cursor::new(vec![]));
         let cdc: LegacyCodec<Cursor<Vec<u8>>> = LegacyCodec::default();
         ShroomSession::new(io, cdc.create_mock_client_codec())
     }

@@ -24,7 +24,7 @@ impl PacketWrapped for Ticks {
 
 /// Represents time from the win32 API `timeGetTime`
 /// time since system start in seconds
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ClientTime(pub u32);
 
 impl ClientTime {
@@ -49,7 +49,7 @@ impl PacketWrapped for ClientTime {
 /// of ms relative to the client time
 /// For example -1000 results on the client side to:
 /// timeGetTime() - 1000
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClientTimeOffset(pub DurationMs<i32>);
 
 impl PacketWrapped for ClientTimeOffset {

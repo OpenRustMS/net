@@ -1,7 +1,8 @@
-use std::io;
+use std::{io, net::SocketAddr};
 
 use crate::NetResult;
 
+use bytes::BytesMut;
 use futures::{SinkExt, Stream, StreamExt};
 use shroom_pkt::{
     opcode::{HasOpcode, NetOpcode},
@@ -11,11 +12,15 @@ use shroom_pkt::{
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use super::ShroomCodec;
+use super::{ShroomCodec, ShroomTransport};
 
 pub struct ShroomSession<C: ShroomCodec> {
     r: FramedRead<ReadHalf<C::Transport>, C::Decoder>,
     w: FramedWrite<WriteHalf<C::Transport>, C::Encoder>,
+    // TODO remove that buf later
+    local_buf: BytesMut,
+    local_addr: SocketAddr,
+    peer_addr: SocketAddr,
 }
 
 impl<C> ShroomSession<C>
@@ -24,11 +29,24 @@ where
 {
     /// Create a new session from the `io` and
     pub fn new(io: C::Transport, (enc, dec): (C::Encoder, C::Decoder)) -> Self {
+        let local_addr = io.local_addr().unwrap();
+        let peer_addr = io.peer_addr().unwrap();
         let (r, w) = tokio::io::split(io);
         Self {
             r: FramedRead::new(r, dec),
             w: FramedWrite::new(w, enc),
+            local_addr,
+            peer_addr,
+            local_buf: BytesMut::with_capacity(4096),
         }
+    }
+
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 
     pub async fn read_packet(&mut self) -> NetResult<ShroomPacketData> {
@@ -66,16 +84,15 @@ where
         op: impl NetOpcode,
         data: impl EncodePacket,
     ) -> NetResult<()> {
-        let buf = self.w.write_buffer_mut();
-        buf.clear();
-        buf.reserve(4096);
+        self.local_buf.clear();
+        self.local_buf.reserve(4096);
 
         // Encode the packet onto the buffer
-        let mut pw = PacketWriter::new(buf);
+        let mut pw = PacketWriter::new(&mut self.local_buf);
         pw.write_opcode(op)?;
         data.encode_packet(&mut pw)?;
 
-        self.w.flush().await?;
+        self.w.send(&self.local_buf).await?;
         Ok(())
     }
 
