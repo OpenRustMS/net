@@ -95,7 +95,7 @@ mod tests {
 
         async fn make_handler(
             _make_state: &Self::MakeState,
-            _sess: &mut ShroomSession<Self::Codec>,
+            _ctx: &mut ShroomSessionCtx<Self>,
             _handle: ShroomSessionHandle<Self::Msg>,
         ) -> Result<Self, Self::Error> {
             Ok(Self::default())
@@ -103,7 +103,7 @@ mod tests {
 
         async fn handle_msg(
             &mut self,
-            _session: &mut ShroomSession<Self::Codec>,
+            _ctx: &mut ShroomSessionCtx<Self>,
             _msg: ShroomSessionEvent<Self::Msg>,
         ) -> Result<SessionHandleResult, Self::Error> {
             Ok(SessionHandleResult::Ok)

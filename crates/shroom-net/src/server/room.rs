@@ -20,6 +20,15 @@ pub struct RoomSet<Key, Msg> {
     clients: IndexMap<Key, mpsc::Sender<Msg>>,
 }
 
+impl<Key, Msg> Default for RoomSet<Key, Msg>
+where
+    Key: Hash + Eq + PartialEq,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Msg, Key> RoomSet<Key, Msg>
 where
     Key: Hash + Eq + PartialEq,

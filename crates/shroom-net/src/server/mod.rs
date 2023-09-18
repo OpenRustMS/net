@@ -100,10 +100,9 @@ where
         handle: ShroomSessionHandle<H::Msg>,
         tick: Tick,
     ) -> Result<(), H::Error> {
-        let mut session = codec.create_server_session(io).await?;
-        let mut handler = H::make_handler(&mh, &mut session, handle).await?;
-
+        let session = codec.create_server_session(io).await?;
         let mut ctx = ShroomSessionCtx::new(session, rx, Duration::from_secs(30), tick);
+        let mut handler = H::make_handler(&mh, &mut ctx, handle).await?;
         let res = ctx.exec(&mut handler).await;
 
         match res {

@@ -61,14 +61,14 @@ pub trait ShroomSessionHandler: Sized {
 
     async fn make_handler(
         make_state: &Self::MakeState,
-        sess: &mut ShroomSession<Self::Codec>,
+        ctx: &mut ShroomSessionCtx<Self>,
         handle: ShroomSessionHandle<Self::Msg>,
     ) -> Result<Self, Self::Error>;
 
     /// Handle a new event
     async fn handle_msg(
         &mut self,
-        session: &mut ShroomSession<Self::Codec>,
+        ctx: &mut ShroomSessionCtx<Self>,
         msg: ShroomSessionEvent<Self::Msg>,
     ) -> Result<SessionHandleResult, Self::Error>;
 
@@ -116,23 +116,23 @@ where
             let res = tokio::select! {
                 Some(packet) = self.session.next() => {
                     let packet = packet?;
-                    handler.handle_msg(&mut self.session, ShroomSessionEvent::IncomingPacket(packet)).await?
+                    handler.handle_msg(self, ShroomSessionEvent::IncomingPacket(packet)).await?
                 }
                 Some(msg) = self.rx.recv() => {
-                    handler.handle_msg(&mut self.session, ShroomSessionEvent::Message(msg)).await?
+                    handler.handle_msg(self, ShroomSessionEvent::Message(msg)).await?
                 }
                 Some(msg) = handler.recv_msg() => {
-                    handler.handle_msg(&mut self.session, ShroomSessionEvent::Message(msg)).await?
+                    handler.handle_msg(self, ShroomSessionEvent::Message(msg)).await?
                 }
                 tick = self.tick.next() => {
-                    handler.handle_msg(&mut self.session, ShroomSessionEvent::Tick(tick)).await?
+                    handler.handle_msg(self, ShroomSessionEvent::Tick(tick)).await?
                 }
                 _ = self.ping.tick() => {
                     if self.pending_ping {
                         return Err(NetError::PingTimeout.into());
                     }
                     self.pending_ping = true;
-                    handler.handle_msg(&mut self.session, ShroomSessionEvent::Ping).await?
+                    handler.handle_msg(self, ShroomSessionEvent::Ping).await?
                 }
 
                 else => {
