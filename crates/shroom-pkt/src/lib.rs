@@ -71,6 +71,8 @@ impl AsRef<Bytes> for ShroomPacketData {
     }
 }
 
+pub use shroom_pkt_derive::*;
+
 #[cfg(test)]
 mod tests {
     use super::*;

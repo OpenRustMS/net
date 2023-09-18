@@ -1,6 +1,5 @@
 pub mod crypto;
 pub mod error;
-pub mod util;
 
 pub mod codec;
 pub mod server;

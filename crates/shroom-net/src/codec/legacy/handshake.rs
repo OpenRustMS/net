@@ -1,8 +1,8 @@
-use std::io::{Read, Write};
+use std::{io::Read, iter};
 
 use arrayvec::{ArrayString, ArrayVec};
 use shroom_pkt::{DecodePacket, EncodePacket, PacketReader, PacketWrapped, PacketWriter};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::{
     crypto::{RoundKey, ROUND_KEY_LEN},
@@ -67,39 +67,16 @@ impl Handshake {
             .map_err(|_| NetError::InvalidHandshake)
     }
 
+    /// Encode the handshake onto the buffer
     pub fn to_buf(&self) -> HandshakeBuf {
         let mut buf = HandshakeBuf::default();
-        let n = self.encode_with_len(&mut buf);
-        buf[..n].try_into().unwrap()
-    }
-
-    /// Write a handshake async
-    pub async fn write_handshake_async<W: AsyncWrite + Unpin>(&self, mut w: W) -> NetResult<()> {
-        let mut buf = HandshakeBuf::default();
-        let n = self.encode_with_len(&mut buf);
-        w.write_all(&buf[..n]).await?;
-
-        Ok(())
-    }
-
-    /// Write handshake
-    pub fn write_handshake<W: Write>(&self, mut w: W) -> NetResult<()> {
-        let mut buf = HandshakeBuf::default();
-        let n = self.encode_with_len(&mut buf);
-        w.write_all(&buf[..n])?;
-
-        Ok(())
-    }
-
-    /// Encode the handshake onto the buffer
-    pub fn encode_with_len(&self, buf: &mut HandshakeBuf) -> usize {
         let n = self.packet_len();
-
+        buf.extend(iter::repeat(0).take(n + 2));
         let mut pw = PacketWriter::new(buf.as_mut());
         pw.write_u16(n as u16).expect("Handshake len");
         self.encode_packet(&mut pw).unwrap();
 
-        n + 2
+        buf
     }
 }
 

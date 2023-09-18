@@ -4,9 +4,10 @@ use shroom_pkt::{
     EncodePacket,
 };
 
-use crate::{NetResult, SessionTransport, ShroomSession};
-
-use super::handler::SessionHandleResult;
+use crate::{
+    codec::{session::ShroomSession, ShroomCodec},
+    NetResult,
+};
 
 //TODO: either remove async_trait for performance reasons
 // or wait for async fn's in trait becoming stable
@@ -15,33 +16,23 @@ use super::handler::SessionHandleResult;
 /// Returning a SessionHandleResult
 #[async_trait]
 pub trait Response {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
-        self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult>;
+    async fn send<C: ShroomCodec>(self, session: &mut ShroomSession<C>) -> NetResult<()>;
 }
 
-/// Unit is essentially a No-Op
 #[async_trait]
 impl Response for () {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
-        self,
-        _session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
-        Ok(SessionHandleResult::Ok)
+    async fn send<C: ShroomCodec>(self, _session: &mut ShroomSession<C>) -> NetResult<()> {
+        Ok(())
     }
 }
 
 /// Sending the value Some value If It's set
 #[async_trait]
 impl<Resp: Response + Send> Response for Option<Resp> {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
-        self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
+    async fn send<C: ShroomCodec>(self, session: &mut ShroomSession<C>) -> NetResult<()> {
         match self {
             Some(resp) => resp.send(session).await,
-            None => Ok(SessionHandleResult::Ok),
+            None => Ok(()),
         }
     }
 }
@@ -49,14 +40,11 @@ impl<Resp: Response + Send> Response for Option<Resp> {
 /// Sending all Responses in this `Vec`
 #[async_trait]
 impl<Resp: Response + Send> Response for Vec<Resp> {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
-        self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
+    async fn send<C: ShroomCodec>(self, session: &mut ShroomSession<C>) -> NetResult<()> {
         for resp in self.into_iter() {
             resp.send(session).await?;
         }
-        Ok(SessionHandleResult::Ok)
+        Ok(())
     }
 }
 
@@ -90,45 +78,11 @@ impl<T> Response for ResponsePacket<T>
 where
     T: EncodePacket + Send,
 {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
-        self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
+    async fn send<C: ShroomCodec>(self, session: &mut ShroomSession<C>) -> NetResult<()> {
         session
             .send_encode_packet_with_opcode(self.op, self.data)
             .await?;
-        Ok(SessionHandleResult::Ok)
-    }
-}
-
-/// Response which sends the packet `T` and then
-/// migrates the session
-pub struct MigrateResponse<T>(pub T);
-
-#[async_trait]
-impl<T> Response for MigrateResponse<T>
-where
-    T: Response + Send,
-{
-    async fn send<Trans: SessionTransport + Send + Unpin>(
-        self,
-        session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
-        self.0.send(session).await?;
-        return Ok(SessionHandleResult::Migrate);
-    }
-}
-
-/// Response which does nothing but signals that a Pong was handled via `SessionHandleResult`
-pub struct PongResponse;
-
-#[async_trait]
-impl Response for PongResponse {
-    async fn send<Trans: SessionTransport + Send + Unpin>(
-        self,
-        _session: &mut ShroomSession<Trans>,
-    ) -> NetResult<SessionHandleResult> {
-        return Ok(SessionHandleResult::Pong);
+        Ok(())
     }
 }
 
@@ -196,25 +150,6 @@ impl<T: EncodePacket + Send> IntoResponse for Vec<ResponsePacket<T>> {
 
     fn into_response(self) -> Self::Resp {
         self
-    }
-}
-
-impl IntoResponse for PongResponse {
-    type Resp = PongResponse;
-
-    fn into_response(self) -> Self::Resp {
-        self
-    }
-}
-
-impl<T> IntoResponse for MigrateResponse<T>
-where
-    T: Send + IntoResponse,
-{
-    type Resp = MigrateResponse<T::Resp>;
-
-    fn into_response(self) -> Self::Resp {
-        MigrateResponse(self.0.into_response())
     }
 }
 

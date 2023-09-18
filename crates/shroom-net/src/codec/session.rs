@@ -11,20 +11,19 @@ use shroom_pkt::{
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use super::{ShroomCodec, ShroomTransport};
+use super::ShroomCodec;
 
-pub struct ShroomSession<C: ShroomCodec, T> {
-    r: FramedRead<ReadHalf<T>, C::Decoder>,
-    w: FramedWrite<WriteHalf<T>, C::Encoder>,
+pub struct ShroomSession<C: ShroomCodec> {
+    r: FramedRead<ReadHalf<C::Transport>, C::Decoder>,
+    w: FramedWrite<WriteHalf<C::Transport>, C::Encoder>,
 }
 
-impl<C, T> ShroomSession<C, T>
+impl<C> ShroomSession<C>
 where
     C: ShroomCodec + Unpin,
-    T: ShroomTransport,
 {
     /// Create a new session from the `io` and
-    pub fn new(io: T, (dec, enc): (C::Decoder, C::Encoder)) -> Self {
+    pub fn new(io: C::Transport, (enc, dec): (C::Encoder, C::Decoder)) -> Self {
         let (r, w) = tokio::io::split(io);
         Self {
             r: FramedRead::new(r, dec),
@@ -86,7 +85,7 @@ where
     }
 }
 
-impl<C: ShroomCodec, T: ShroomTransport> Stream for ShroomSession<C, T> {
+impl<C: ShroomCodec> Stream for ShroomSession<C> {
     type Item = NetResult<ShroomPacketData>;
 
     fn poll_next(
@@ -99,10 +98,19 @@ impl<C: ShroomCodec, T: ShroomTransport> Stream for ShroomSession<C, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        sync::Arc,
+    };
     use turmoil::net::{TcpListener, TcpStream};
 
-    use crate::codec::legacy::LocaleCode;
+    use crate::{
+        codec::{
+            legacy::{handshake_gen::BasicHandshakeGenerator, LegacyCodec},
+            ShroomCodec,
+        },
+        crypto::SharedCryptoContext,
+    };
 
     const PORT: u16 = 1738;
 
@@ -113,26 +121,24 @@ mod tests {
     #[test]
     fn echo() -> anyhow::Result<()> {
         const ECHO_DATA: [&'static [u8]; 4] = [&[0xFF; 4096], &[1, 2], &[], &[0x0; 1024]];
-        const V: u16 = 83;
-        const LOCALE: LocaleCode = LocaleCode::Global;
+
+        let legacy = Arc::new(LegacyCodec::<turmoil::net::TcpStream>::new(
+            SharedCryptoContext::default(),
+            BasicHandshakeGenerator::v83(),
+        ));
 
         let mut sim = turmoil::Builder::new().build();
 
         sim.host("server", || async move {
-            let crypto_ctx = SharedCryptoContext::default();
-            let hshake_gen = BasicHandshakeGenerator::new(V, "1", LOCALE);
-            let handshake = hshake_gen.generate_handshake();
             let listener = bind().await?;
 
+            let legacy = LegacyCodec::<turmoil::net::TcpStream>::new(
+                SharedCryptoContext::default(),
+                BasicHandshakeGenerator::v83(),
+            );
             loop {
                 let socket = listener.accept().await?.0;
-                let mut sess = ShroomSession::initialize_server_session(
-                    socket,
-                    crypto_ctx.clone(),
-                    handshake.clone(),
-                )
-                .await?;
-
+                let mut sess = legacy.create_server_session(socket).await?;
                 // Echo
                 while let Ok(pkt) = sess.read_packet().await {
                     sess.send_packet(pkt.as_ref()).await?;
@@ -142,15 +148,11 @@ mod tests {
 
         sim.client("client", async move {
             let socket = TcpStream::connect(("server", PORT)).await?;
-            let (mut sess, handshake) =
-                ShroomSession::initialize_client_session(socket, SharedCryptoContext::default())
-                    .await?;
-            assert_eq!(handshake.version, V);
-
-            for data in ECHO_DATA.iter() {
+            let mut sess = legacy.create_client_session(socket).await?;
+            for (i, data) in ECHO_DATA.iter().enumerate() {
                 sess.send_packet(data).await?;
                 let pkt = sess.read_packet().await?;
-                assert_eq!(pkt.as_ref(), *data);
+                assert_eq!(pkt.as_ref(), *data, "failed at: {i}");
             }
 
             Ok(())

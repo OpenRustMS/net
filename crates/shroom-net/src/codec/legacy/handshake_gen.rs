@@ -1,6 +1,6 @@
 use arrayvec::ArrayString;
 
-use crate::crypto::RoundKey;
+use crate::crypto::{RoundKey, ShroomVersion};
 
 use super::{handshake::Handshake, LocaleCode};
 
@@ -26,6 +26,10 @@ impl BasicHandshakeGenerator {
             sub_version: sub_version.try_into().expect("Subversion"),
             locale,
         }
+    }
+
+    pub fn version(&self) -> ShroomVersion {
+        ShroomVersion(self.version)
     }
 
     /// Creates a handshake generator

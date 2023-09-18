@@ -115,7 +115,7 @@ macro_rules! partial_data {
             }
 
 
-            #[derive(Debug, Default)]
+            #[derive(Debug, Default, Clone)]
             pub struct [<$name Partial>] {
                 $(
                     pub [<$stat_name:lower>]: $crate::CondOption<$stat_ty>,
