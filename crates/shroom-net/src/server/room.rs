@@ -11,11 +11,13 @@ use tokio::{
 
 use super::tick::Tick;
 
-// TODO: messages like forced leave should be signals
-// Because they have to work all the time even when the
-// message queue is full
+/*  TODO:
+    - Session force leave(Drop) must always send a message without blocking
+    - Handle client being out of capacity(kick the client from the field)
+*/
 
 /// A set of clients in a room
+#[derive(Debug)]
 pub struct RoomSet<Key, Msg> {
     clients: IndexMap<Key, mpsc::Sender<Msg>>,
 }
@@ -46,19 +48,24 @@ where
     }
 
     /// Removes a client with the given client id
-    pub fn remove(&mut self, key: Key) {
-        self.clients.remove(&key);
+    pub fn remove(&mut self, key: &Key) {
+        self.clients.remove(key);
     }
 
     /// Send a message to a specific client by their id
-    pub fn send_to(&self, to: Key, msg: Msg) -> anyhow::Result<()> {
-        self.clients
-            .get(&to)
-            .ok_or_else(|| anyhow::format_err!("Unable to find session"))?
+    pub fn send_to(&self, to: &Key, msg: Msg) -> anyhow::Result<()> {
+        self.get(to)?
             .try_send(msg)
             .map_err(|_| anyhow::format_err!("Unable to send message"))?;
 
         Ok(())
+    }
+
+    /// Gets a session handle by key
+    pub fn get(&self, key: &Key) -> anyhow::Result<&mpsc::Sender<Msg>> {
+        self.clients
+            .get(key)
+            .ok_or_else(|| anyhow::format_err!("Unable to find session"))
     }
 }
 
@@ -68,10 +75,17 @@ where
     Msg: Clone,
 {
     /// Broadcasts a message to all clients
-    /// src allows to filter out the sender client
-    pub fn broadcast(&self, msg: Msg, src: Option<Key>) -> anyhow::Result<()> {
+    pub fn broadcast(&self, msg: Msg) -> anyhow::Result<()> {
+        for sess in self.clients.values() {
+            let _ = sess.try_send(msg.clone());
+        }
+        Ok(())
+    }
+
+    /// Broadcasts a message to all clients except the source
+    pub fn broadcast_filter(&self, msg: Msg, source: &Key) -> anyhow::Result<()> {
         for (key, sess) in self.clients.iter() {
-            if src.as_ref() == Some(key) {
+            if source == key {
                 continue;
             }
             let _ = sess.try_send(msg.clone());
@@ -86,22 +100,27 @@ pub trait RoomState {
     type Key: PartialEq + Eq + std::hash::Hash + Send + Sync + Clone + 'static;
     type SessionMsg: Send + Sync + 'static;
     type Msg: Send + Sync + 'static;
+    type JoinData: Send + Sync + 'static;
 
-    fn handle_msg(
-        &mut self,
-        sessions: &RoomSet<Self::Key, Self::SessionMsg>,
-        msg: Self::Msg,
-    ) -> anyhow::Result<()>;
+    fn sessions(&self) -> &RoomSet<Self::Key, Self::SessionMsg>;
+    fn session_mut(&mut self) -> &mut RoomSet<Self::Key, Self::SessionMsg>;
 
-    fn handle_tick(
-        &mut self,
-        sessions: &RoomSet<Self::Key, Self::SessionMsg>,
-    ) -> anyhow::Result<()>;
+    #[allow(unused_variables)]
+    fn handle_join(&mut self, id: Self::Key, data: Self::JoinData) -> anyhow::Result<()> {
+        Ok(())
+    }
+    #[allow(unused_variables)]
+    fn handle_leave(&mut self, id: Self::Key) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn handle_msg(&mut self, msg: Self::Msg) -> anyhow::Result<()>;
+    fn handle_tick(&mut self) -> anyhow::Result<()>;
 }
 
 pub enum RoomMsg<S: RoomState> {
     SessionJoin {
         id: S::Key,
+        join_data: S::JoinData,
         tx_session: mpsc::Sender<S::SessionMsg>,
         tx: oneshot::Sender<()>,
     },
@@ -191,6 +210,7 @@ where
     pub async fn join(
         &self,
         id: S::Key,
+        join_data: S::JoinData,
         tx_session: mpsc::Sender<S::SessionMsg>,
     ) -> anyhow::Result<RoomJoinHandle<S>> {
         let (tx, rx) = oneshot::channel();
@@ -198,6 +218,7 @@ where
             .send(RoomMsg::SessionJoin {
                 tx,
                 tx_session,
+                join_data,
                 id: id.clone(),
             })
             .await?;
@@ -215,9 +236,10 @@ where
     pub async fn join_with_channel(
         &self,
         id: S::Key,
+        join_data: S::JoinData,
     ) -> anyhow::Result<(RoomJoinHandle<S>, mpsc::Receiver<S::SessionMsg>)> {
         let (tx, rx) = mpsc::channel(16);
-        Ok((self.join(id, tx).await?, rx))
+        Ok((self.join(id, join_data, tx).await?, rx))
     }
 
     /// Internal execution loop for this room
@@ -227,28 +249,28 @@ where
         mut rx: mpsc::Receiver<RoomMsg<S>>,
         session_count: Arc<AtomicUsize>,
     ) {
-        let mut sessions = RoomSet::new();
-
         loop {
+            let sessions = state.session_mut();
             tokio::select! {
                 msg = rx.recv() => {
                     match msg {
-                        Some(RoomMsg::SessionJoin { id, tx_session, tx }) => {
-                            sessions.add(id, tx_session);
+                        Some(RoomMsg::SessionJoin { id, join_data, tx_session, tx }) => {
+                            sessions.add(id.clone(), tx_session);
                             let _ = tx.send(());
                             session_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            state.handle_join(id, join_data).unwrap();
                         }
                         Some(RoomMsg::SessionLeave(id, tx)) => {
-                            sessions.remove(id);
+                            sessions.remove(&id);
                             let _ = tx.send(());
                             session_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         }
                         Some(RoomMsg::SessionForceLeave(id)) => {
-                            sessions.remove(id);
+                            sessions.remove(&id);
                             session_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         }
                         Some(RoomMsg::RoomMsg(msg)) => {
-                            state.handle_msg(&sessions, msg).unwrap();
+                            state.handle_msg(msg).unwrap();
                         }
                         None => {
                             return;
@@ -256,7 +278,7 @@ where
                     }
                 }
                 _ = tick.next() => {
-                    state.handle_tick(&sessions).unwrap();
+                    state.handle_tick().unwrap();
                 }
             }
         }
@@ -277,35 +299,40 @@ mod tests {
         Sub(u32),
     }
 
-    #[derive(Default, Clone)]
-    pub struct RoomState(u32);
+    #[derive(Default, Debug)]
+    pub struct RoomState {
+        v: u32,
+        sessions: RoomSet<ClientId, u32>,
+    }
 
     impl super::RoomState for RoomState {
         type Key = ClientId;
         type SessionMsg = u32;
         type Msg = RoomMsg;
+        type JoinData = ();
 
-        fn handle_msg(
-            &mut self,
-            sessions: &RoomSet<Self::Key, Self::SessionMsg>,
-            msg: Self::Msg,
-        ) -> anyhow::Result<()> {
+        fn handle_msg(&mut self, msg: Self::Msg) -> anyhow::Result<()> {
             match msg {
-                RoomMsg::Add(v) => self.0 += v,
-                RoomMsg::Sub(v) => self.0 -= v,
+                RoomMsg::Add(v) => self.v += v,
+                RoomMsg::Sub(v) => self.v -= v,
             };
 
-            sessions.broadcast(self.0, None)?;
+            self.sessions.broadcast(self.v)?;
             Ok(())
         }
 
-        fn handle_tick(
-            &mut self,
-            sessions: &RoomSet<Self::Key, Self::SessionMsg>,
-        ) -> anyhow::Result<()> {
-            self.0 += 1;
-            sessions.broadcast(self.0, None)?;
+        fn handle_tick(&mut self) -> anyhow::Result<()> {
+            self.v += 1;
+            self.sessions.broadcast(self.v)?;
             Ok(())
+        }
+
+        fn sessions(&self) -> &RoomSet<Self::Key, Self::SessionMsg> {
+            &self.sessions
+        }
+
+        fn session_mut(&mut self) -> &mut RoomSet<Self::Key, Self::SessionMsg> {
+            &mut self.sessions
         }
     }
 
@@ -315,7 +342,7 @@ mod tests {
         let room = Room::spawn(RoomState::default(), ticker.get_tick());
         assert_eq!(room.session_count(), 0);
 
-        let (r, mut rx) = room.join_with_channel(1).await.unwrap();
+        let (r, mut rx) = room.join_with_channel(1, ()).await.unwrap();
         assert_eq!(room.session_count(), 1);
 
         r.send(RoomMsg::Add(10)).await.unwrap();
@@ -337,7 +364,7 @@ mod tests {
         let room = Room::spawn(RoomState::default(), ticker.get_tick());
         assert_eq!(room.session_count(), 0);
 
-        let (r, _) = room.join_with_channel(1).await.unwrap();
+        let (r, _) = room.join_with_channel(1, ()).await.unwrap();
         assert_eq!(room.session_count(), 1);
 
         std::mem::drop(r);
