@@ -174,7 +174,7 @@ macro_rules! partial_data {
             }
 
 
-            #[derive(Default, $($derive),*)]
+            #[derive($($derive),*)]
             pub struct [<$name All>] {
                 $(pub [<$stat_name:lower>]: $stat_ty,)*
             }
