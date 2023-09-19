@@ -167,7 +167,6 @@ macro_rules! partial_data {
 
             #[derive($($derive),*)]
             pub struct [<$name All>] {
-                pub all_flags: $crate::proto::partial::AllFlags<$partial_name>,
                 $(pub [<$stat_name:lower>]: $stat_ty,)*
             }
         }
@@ -202,11 +201,7 @@ mod tests {
             }
         }
 
-        let _all = TestStatsAll {
-            all_flags: AllFlags::default(),
-            a: 1,
-            b: 2,
-        };
+        let _all = TestStatsAll { a: 1, b: 2 };
 
         let partial = TestStatsPartial {
             a: CondOption(None),
