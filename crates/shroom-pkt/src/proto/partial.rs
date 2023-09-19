@@ -115,11 +115,21 @@ macro_rules! partial_data {
             }
 
 
-            #[derive(Default, $($derive),*)]
+            #[derive($($derive),*)]
             pub struct [<$name Partial>] {
                 $(
                     pub [<$stat_name:lower>]: $crate::CondOption<$stat_ty>,
                 )*
+            }
+
+            impl Default for [<$name Partial>] {
+                fn default() -> Self {
+                    Self {
+                        $(
+                            [<$stat_name:lower>]: $crate::CondOption(None),
+                        )*
+                    }
+                }
             }
 
             impl <'de> $crate::proto::partial::PartialData<'de> for [<$name Partial>] {
