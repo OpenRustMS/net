@@ -164,10 +164,31 @@ macro_rules! partial_data {
             }
 
 
-
-            #[derive($($derive),*)]
+            #[derive(Default, $($derive),*)]
             pub struct [<$name All>] {
                 $(pub [<$stat_name:lower>]: $stat_ty,)*
+            }
+
+            impl $crate::EncodePacket for [<$name All>] {
+                const SIZE_HINT: $crate::SizeHint = $crate::SizeHint::NONE;
+
+                fn packet_len(&self) -> usize {
+                    $(self.[<$stat_name:lower>].packet_len() +)*
+                        0
+                }
+
+                fn encode_packet<T: bytes::BufMut>(&self, pw: &mut $crate::PacketWriter<T>) -> $crate::PacketResult<()> {
+                    $(self.[<$stat_name:lower>].encode_packet(pw)?; )*
+                    Ok(())
+                }
+            }
+
+            impl<'de> $crate::DecodePacket<'de> for [<$name All>] {
+                fn decode_packet(pr: &mut $crate::PacketReader<'de>) -> $crate::PacketResult<Self> {
+                    Ok(Self {
+                        $( [<$stat_name:lower>]: <$stat_ty>::decode_packet(pr)?, )*
+                    })
+                }
             }
         }
     }
@@ -176,7 +197,6 @@ macro_rules! partial_data {
 #[cfg(test)]
 mod tests {
     use crate::{
-        partial::AllFlags,
         proto::{
             partial::{PartialData, PartialFlag},
             CondOption,
