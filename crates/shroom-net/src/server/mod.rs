@@ -1,8 +1,8 @@
 pub mod handler;
 pub mod resp;
 pub mod room;
-pub mod server_session;
-pub mod session_set;
+pub mod runtime;
+pub mod server_conn;
 pub mod tick;
 
 use std::{
@@ -27,19 +27,22 @@ use crate::{codec::ShroomCodec, NetError, NetResult};
 
 use self::{
     room::{Room, RoomState},
-    server_session::{ShroomSessionCtx, ShroomSessionHandler},
-    tick::{Tick, Ticker},
+    server_conn::ShroomConnHandler,
+    tick::Tick,
 };
+
+pub use server_conn::ServerConnCtx;
+pub use server_conn::ServerHandleResult;
 
 pub type ClientId = usize;
 
 #[derive(Debug)]
-pub struct ShroomSessionHandle<Msg> {
+pub struct SharedConnHandle<Msg> {
     pub id: ClientId,
     pub tx: mpsc::Sender<Msg>,
 }
 
-impl<Msg> Clone for ShroomSessionHandle<Msg> {
+impl<Msg> Clone for SharedConnHandle<Msg> {
     fn clone(&self) -> Self {
         Self {
             id: self.id,
@@ -48,33 +51,43 @@ impl<Msg> Clone for ShroomSessionHandle<Msg> {
     }
 }
 
-pub struct ServerClientHandle<H: ShroomSessionHandler> {
-    pub session: ShroomSessionHandle<H::Msg>,
+#[derive(Debug)]
+pub struct ServerConnHandle<H: ShroomConnHandler> {
+    pub conn: SharedConnHandle<H::Msg>,
     kill: JoinHandle<Result<(), H::Error>>,
 }
 
-impl<H: ShroomSessionHandler> Drop for ServerClientHandle<H> {
+impl<H: ShroomConnHandler> Drop for ServerConnHandle<H> {
     fn drop(&mut self) {
         self.kill.abort();
     }
 }
 
-pub struct ShroomServer<H: ShroomSessionHandler> {
+pub struct ShroomServer<H: ShroomConnHandler> {
     codec: Arc<H::Codec>,
     make_state: Arc<H::MakeState>,
-    clients: HashMap<ClientId, ServerClientHandle<H>>,
+    clients: HashMap<ClientId, ServerConnHandle<H>>,
     next_id: AtomicUsize,
-    ticker: Ticker,
+    tick: Tick,
 }
 
-impl<H: ShroomSessionHandler> ShroomServer<H> {
-    pub fn new(codec: H::Codec, make_state: H::MakeState, tick_dur: Duration) -> Self {
+impl<H: ShroomConnHandler> std::fmt::Debug for ShroomServer<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShroomServer")
+            .field("next_id", &self.next_id)
+            .field("ticker", &self.tick)
+            .finish()
+    }
+}
+
+impl<H: ShroomConnHandler> ShroomServer<H> {
+    pub fn new(codec: Arc<H::Codec>, make_state: H::MakeState, tick: Tick) -> Self {
         Self {
-            codec: Arc::new(codec),
+            codec,
             clients: HashMap::new(),
             next_id: AtomicUsize::new(0),
             make_state: Arc::new(make_state),
-            ticker: Ticker::spawn(tick_dur),
+            tick,
         }
     }
 
@@ -83,36 +96,35 @@ impl<H: ShroomSessionHandler> ShroomServer<H> {
     }
 
     pub fn spawn_room<State: RoomState + Send + 'static>(&self, state: State) -> Room<State> {
-        Room::spawn(state, self.ticker.get_tick())
+        Room::spawn(state, self.tick.clone())
     }
 }
 
 impl<H> ShroomServer<H>
 where
-    H: ShroomSessionHandler + Send + Sync + 'static,
+    H: ShroomConnHandler + Send + 'static,
     H::Codec: Send + Sync + 'static,
 {
-    async fn init_session(
+    async fn init_conn(
         mh: Arc<H::MakeState>,
         codec: Arc<H::Codec>,
         io: <H::Codec as ShroomCodec>::Transport,
         rx: mpsc::Receiver<H::Msg>,
-        handle: ShroomSessionHandle<H::Msg>,
+        handle: SharedConnHandle<H::Msg>,
         tick: Tick,
     ) -> Result<(), H::Error> {
         let session = codec.create_server_session(io).await?;
-        let mut ctx = ShroomSessionCtx::new(session, rx, Duration::from_secs(30), tick);
+        let mut ctx = ServerConnCtx::new(session, rx, Duration::from_secs(30), tick);
         let mut handler = H::make_handler(&mh, &mut ctx, handle).await?;
         let res = ctx.exec(&mut handler).await;
 
         match res {
-            Ok(b) => {
-                // TODO migrate
-                handler.finish(b).await?;
+            Ok(migrate) => {
+                handler.finish(migrate).await?;
             }
             Err(err) => {
                 // TODO error
-                log::error!("Session error: {:?}", err);
+                log::error!("conn error: {:?}", err);
                 handler.finish(false).await?;
             }
         }
@@ -127,21 +139,19 @@ where
             match io_stream.next().await {
                 Some(Ok(io)) => {
                     let id = self.next_id();
-                    let codec = self.codec.clone();
                     let (tx, rx) = mpsc::channel(16);
-                    let handle = ShroomSessionHandle::<H::Msg> { id, tx };
-                    let mh = self.make_state.clone();
-                    let tick = self.ticker.get_tick();
-                    let kill =
-                        tokio::spawn(Self::init_session(mh, codec, io, rx, handle.clone(), tick));
+                    let handle = SharedConnHandle::<H::Msg> { id, tx };
+                    let kill = tokio::spawn(Self::init_conn(
+                        self.make_state.clone(),
+                        self.codec.clone(),
+                        io,
+                        rx,
+                        handle.clone(),
+                        self.tick.clone(),
+                    ));
 
-                    self.clients.insert(
-                        id,
-                        ServerClientHandle {
-                            kill,
-                            session: handle,
-                        },
-                    );
+                    self.clients
+                        .insert(id, ServerConnHandle { kill, conn: handle });
                 }
                 Some(Err(err)) => {
                     log::error!("Error while accepting connection: {}", err);
@@ -156,10 +166,10 @@ where
 
 impl<H> ShroomServer<H>
 where
-    H: ShroomSessionHandler + Send + Sync + 'static,
+    H: ShroomConnHandler + Send + 'static,
     H::Codec: ShroomCodec<Transport = TcpStream> + Send + Sync + 'static,
 {
-    pub async fn serve_tcp(&mut self, addr: impl Into<SocketAddr>) -> NetResult<()> {
+    pub async fn serve_tcp(mut self, addr: impl Into<SocketAddr>) -> NetResult<()> {
         let listener = TcpListener::bind(addr.into()).await?;
         let stream = TcpListenerStream::new(listener).map(|io| io.map_err(NetError::from));
         self.serve(stream).await

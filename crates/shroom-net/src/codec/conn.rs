@@ -14,7 +14,7 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 
 use super::{ShroomCodec, ShroomTransport};
 
-pub struct ShroomSession<C: ShroomCodec> {
+pub struct ShroomConn<C: ShroomCodec> {
     r: FramedRead<ReadHalf<C::Transport>, C::Decoder>,
     w: FramedWrite<WriteHalf<C::Transport>, C::Encoder>,
     // TODO remove that buf later
@@ -23,7 +23,7 @@ pub struct ShroomSession<C: ShroomCodec> {
     peer_addr: SocketAddr,
 }
 
-impl<C> ShroomSession<C>
+impl<C> ShroomConn<C>
 where
     C: ShroomCodec + Unpin,
 {
@@ -102,7 +102,7 @@ where
     }
 }
 
-impl<C: ShroomCodec> Stream for ShroomSession<C> {
+impl<C: ShroomCodec> Stream for ShroomConn<C> {
     type Item = NetResult<ShroomPacketData>;
 
     fn poll_next(

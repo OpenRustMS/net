@@ -12,7 +12,7 @@ use tokio::{
 use super::tick::Tick;
 
 /*  TODO:
-    - Session force leave(Drop) must always send a message without blocking
+    - TODO ensure the force leave channel has enough capacity or is unbounded
     - Handle client being out of capacity(kick the client from the field)
 */
 
@@ -27,7 +27,9 @@ where
     Key: Hash + Eq + PartialEq,
 {
     fn default() -> Self {
-        Self::new()
+        Self {
+            clients: IndexMap::default(),
+        }
     }
 }
 
@@ -35,13 +37,6 @@ impl<Msg, Key> RoomSet<Key, Msg>
 where
     Key: Hash + Eq + PartialEq,
 {
-    /// Creates a new roomset
-    pub fn new() -> Self {
-        Self {
-            clients: IndexMap::new(),
-        }
-    }
-
     /// Adds a new client
     pub fn add(&mut self, key: Key, tx: mpsc::Sender<Msg>) {
         self.clients.insert(key, tx);
@@ -98,12 +93,12 @@ where
 /// and maintains the room
 pub trait RoomState {
     type Key: PartialEq + Eq + std::hash::Hash + Send + Sync + Clone + 'static;
-    type SessionMsg: Send + Sync + 'static;
+    type ConnMsg: Send + Sync + 'static;
     type Msg: Send + Sync + 'static;
     type JoinData: Send + Sync + 'static;
 
-    fn sessions(&self) -> &RoomSet<Self::Key, Self::SessionMsg>;
-    fn session_mut(&mut self) -> &mut RoomSet<Self::Key, Self::SessionMsg>;
+    fn sessions(&self) -> &RoomSet<Self::Key, Self::ConnMsg>;
+    fn session_mut(&mut self) -> &mut RoomSet<Self::Key, Self::ConnMsg>;
 
     #[allow(unused_variables)]
     fn handle_join(&mut self, id: Self::Key, data: Self::JoinData) -> anyhow::Result<()> {
@@ -118,14 +113,13 @@ pub trait RoomState {
 }
 
 pub enum RoomMsg<S: RoomState> {
-    SessionJoin {
+    ConnJoin {
         id: S::Key,
         join_data: S::JoinData,
-        tx_session: mpsc::Sender<S::SessionMsg>,
+        tx_session: mpsc::Sender<S::ConnMsg>,
         tx: oneshot::Sender<()>,
     },
-    SessionLeave(S::Key, oneshot::Sender<()>),
-    SessionForceLeave(S::Key),
+    ConnLeave(S::Key, oneshot::Sender<()>),
     RoomMsg(S::Msg),
 }
 
@@ -134,6 +128,7 @@ pub struct RoomJoinHandle<S: RoomState> {
     tx_room: mpsc::Sender<RoomMsg<S>>,
     id: S::Key,
     left: bool,
+    force_leave_tx: mpsc::Sender<S::Key>,
 }
 
 impl<S: RoomState> RoomJoinHandle<S>
@@ -150,7 +145,7 @@ where
     pub async fn leave(mut self) -> anyhow::Result<()> {
         let (tx, rx) = oneshot::channel();
         self.tx_room
-            .send(RoomMsg::SessionLeave(self.id.clone(), tx))
+            .send(RoomMsg::ConnLeave(self.id.clone(), tx))
             .await?;
         rx.await?;
         self.left = true;
@@ -162,20 +157,19 @@ where
 impl<S: RoomState> Drop for RoomJoinHandle<S> {
     fn drop(&mut self) {
         if !self.left {
-            //TODO see note at the top
-            let _ = self
-                .tx_room
-                .try_send(RoomMsg::SessionForceLeave(self.id.clone()));
-            self.left = true;
+            self.force_leave_tx
+                .try_send(self.id.clone())
+                .expect("force leave");
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Room<S: RoomState> {
-    kill: JoinHandle<()>,
+    kill: JoinHandle<anyhow::Result<()>>,
     tx: mpsc::Sender<RoomMsg<S>>,
     session_count: Arc<AtomicUsize>,
+    force_leave_tx: mpsc::Sender<S::Key>,
 }
 
 impl<State: RoomState> Drop for Room<State> {
@@ -197,12 +191,20 @@ where
     /// Spawns this room, returning a handle to this room
     pub fn spawn(state: S, tick: Tick) -> Self {
         let (tx, rx) = mpsc::channel(128);
+        let (force_leave_tx, force_leave_rx) = mpsc::channel(128);
         let session_count = Arc::new(AtomicUsize::new(0));
-        let kill = tokio::spawn(Self::exec(state, tick, rx, session_count.clone()));
+        let kill = tokio::spawn(Self::exec(
+            state,
+            tick,
+            rx,
+            force_leave_rx,
+            session_count.clone(),
+        ));
         Self {
             kill,
             tx,
             session_count,
+            force_leave_tx,
         }
     }
 
@@ -211,11 +213,11 @@ where
         &self,
         id: S::Key,
         join_data: S::JoinData,
-        tx_session: mpsc::Sender<S::SessionMsg>,
+        tx_session: mpsc::Sender<S::ConnMsg>,
     ) -> anyhow::Result<RoomJoinHandle<S>> {
         let (tx, rx) = oneshot::channel();
         self.tx
-            .send(RoomMsg::SessionJoin {
+            .send(RoomMsg::ConnJoin {
                 tx,
                 tx_session,
                 join_data,
@@ -229,6 +231,7 @@ where
             tx_room: self.tx.clone(),
             id,
             left: false,
+            force_leave_tx: self.force_leave_tx.clone(),
         })
     }
 
@@ -237,7 +240,7 @@ where
         &self,
         id: S::Key,
         join_data: S::JoinData,
-    ) -> anyhow::Result<(RoomJoinHandle<S>, mpsc::Receiver<S::SessionMsg>)> {
+    ) -> anyhow::Result<(RoomJoinHandle<S>, mpsc::Receiver<S::ConnMsg>)> {
         let (tx, rx) = mpsc::channel(16);
         Ok((self.join(id, join_data, tx).await?, rx))
     }
@@ -247,38 +250,43 @@ where
         mut state: S,
         mut tick: Tick,
         mut rx: mpsc::Receiver<RoomMsg<S>>,
+        mut force_leave_rx: mpsc::Receiver<S::Key>,
         session_count: Arc<AtomicUsize>,
-    ) {
+    ) -> anyhow::Result<()> {
         loop {
             let sessions = state.session_mut();
+
             tokio::select! {
                 msg = rx.recv() => {
                     match msg {
-                        Some(RoomMsg::SessionJoin { id, join_data, tx_session, tx }) => {
+                        Some(RoomMsg::ConnJoin { id, join_data, tx_session, tx }) => {
                             sessions.add(id.clone(), tx_session);
                             let _ = tx.send(());
                             session_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            state.handle_join(id, join_data).unwrap();
+                            state.handle_join(id, join_data)?;
                         }
-                        Some(RoomMsg::SessionLeave(id, tx)) => {
+                        Some(RoomMsg::ConnLeave(id, tx)) => {
                             sessions.remove(&id);
                             let _ = tx.send(());
                             session_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                        }
-                        Some(RoomMsg::SessionForceLeave(id)) => {
-                            sessions.remove(&id);
-                            session_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                            state.handle_leave(id)?;
                         }
                         Some(RoomMsg::RoomMsg(msg)) => {
-                            state.handle_msg(msg).unwrap();
+                            state.handle_msg(msg)?;
                         }
                         None => {
-                            return;
+                            return Ok(());
                         }
                     }
                 }
                 _ = tick.next() => {
-                    state.handle_tick().unwrap();
+                    // Clean crashes sessions
+                    while let Ok(id) = force_leave_rx.try_recv() {
+                        state.session_mut().remove(&id);
+                        session_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                        state.handle_leave(id)?;
+                    }
+                    state.handle_tick()?;
                 }
             }
         }
@@ -307,7 +315,7 @@ mod tests {
 
     impl super::RoomState for RoomState {
         type Key = ClientId;
-        type SessionMsg = u32;
+        type ConnMsg = u32;
         type Msg = RoomMsg;
         type JoinData = ();
 
@@ -327,11 +335,11 @@ mod tests {
             Ok(())
         }
 
-        fn sessions(&self) -> &RoomSet<Self::Key, Self::SessionMsg> {
+        fn sessions(&self) -> &RoomSet<Self::Key, Self::ConnMsg> {
             &self.sessions
         }
 
-        fn session_mut(&mut self) -> &mut RoomSet<Self::Key, Self::SessionMsg> {
+        fn session_mut(&mut self) -> &mut RoomSet<Self::Key, Self::ConnMsg> {
             &mut self.sessions
         }
     }
@@ -368,7 +376,7 @@ mod tests {
         assert_eq!(room.session_count(), 1);
 
         std::mem::drop(r);
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(room.session_count(), 0);
     }
 }

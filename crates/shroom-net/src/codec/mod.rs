@@ -1,7 +1,7 @@
 #![allow(non_upper_case_globals)]
 
+pub mod conn;
 pub mod legacy;
-pub mod session;
 
 use std::pin::Pin;
 
@@ -12,7 +12,7 @@ use crate::{NetError, NetResult};
 
 use tokio_util::codec::{Decoder, Encoder};
 
-use self::session::ShroomSession;
+use self::conn::ShroomConn;
 
 pub trait ShroomTransport: AsyncWrite + AsyncRead + Unpin + Send + 'static {
     fn peer_addr(&self) -> NetResult<std::net::SocketAddr>;
@@ -106,7 +106,6 @@ pub trait ShroomCodec: Sized + Unpin {
     type Decoder: Decoder<Item = ShroomPacketData, Error = NetError> + Send + 'static;
     type Transport: ShroomTransport;
 
-    async fn create_client_session(&self, tran: Self::Transport) -> NetResult<ShroomSession<Self>>;
-    async fn create_server_session(&self, trans: Self::Transport)
-        -> NetResult<ShroomSession<Self>>;
+    async fn create_client_session(&self, tran: Self::Transport) -> NetResult<ShroomConn<Self>>;
+    async fn create_server_session(&self, trans: Self::Transport) -> NetResult<ShroomConn<Self>>;
 }

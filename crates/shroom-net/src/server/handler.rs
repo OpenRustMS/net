@@ -3,24 +3,24 @@ use shroom_pkt::{DecodePacket, PacketReader};
 
 use crate::NetError;
 
-use super::server_session::{
-    IntoHandleResult, SessionHandleResult, ShroomSessionCtx, ShroomSessionHandler,
+use super::server_conn::{
+    IntoServerHandleResult, ServerConnCtx, ServerHandleResult, ShroomConnHandler,
 };
 
 /// Call a the specified handler function `f` and process the returned response
-pub async fn call_handler_fn<'session, F, Req, Resp, Fut, H, Err>(
+pub async fn call_handler_fn<'conn, F, Req, Resp, Fut, H, Err>(
     mut f_handler: F,
-    handler: &'session mut H,
-    ctx: &'session mut ShroomSessionCtx<H>,
-    mut pr: PacketReader<'session>,
-) -> Result<SessionHandleResult, Err>
+    handler: &'conn mut H,
+    ctx: &'conn mut ServerConnCtx<H>,
+    mut pr: PacketReader<'conn>,
+) -> Result<ServerHandleResult, Err>
 where
-    H: ShroomSessionHandler,
-    Req: DecodePacket<'session>,
+    H: ShroomConnHandler,
+    Req: DecodePacket<'conn>,
     Err: From<NetError>,
-    Resp: IntoHandleResult,
+    Resp: IntoServerHandleResult,
     Fut: Future<Output = Result<Resp, Err>>,
-    F: FnMut(&'session mut H, &'session mut ShroomSessionCtx<H>, Req) -> Fut,
+    F: FnMut(&'conn mut H, &'conn mut ServerConnCtx<H>, Req) -> Fut,
 {
     let req = Req::decode_packet(&mut pr).map_err(NetError::from)?;
     Ok(f_handler(handler, ctx, req).await?.into_handle_result())
@@ -34,7 +34,7 @@ where
 /// shroom_router_fn!(
 ///     handle, // name
 ///     State,  // State type
-///     ShroomSession<TcpStream>,  // Session type
+///     ShroomConn<TcpStream>,  // Conn type
 ///     anyhow::Error, // Error type
 ///     State::handle_default, // fallback handler
 ///     PacketReq => State::handle_req, // Handle PacketReq with handle_req
@@ -42,10 +42,10 @@ where
 #[macro_export]
 macro_rules! shroom_router_fn {
     ($fname:ident, $handler:ty, $err:ty, $default_handler:expr, $($req:ty => $handler_fn:expr),* $(,)?) => {
-        async fn $fname<'session>(handler: &'session mut $handler,
-                                    ctx: &'session mut ShroomSessionCtx<$handler>,
-                                    mut pr: shroom_pkt::PacketReader<'session>)
-                                    ->  Result<SessionHandleResult, $err>
+        async fn $fname<'conn>(handler: &'conn mut $handler,
+                                    ctx: &'conn mut $crate::server::ServerConnCtx<$handler>,
+                                    mut pr: shroom_pkt::PacketReader<'conn>)
+                                    ->  Result<$crate::server::ServerHandleResult, $err>
         {
             let recv_op = pr.read_opcode()?;
             match recv_op {
@@ -66,14 +66,14 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::{
-        codec::{legacy::LegacyCodec, session::ShroomSession, LocalShroomTransport},
+        codec::{conn::ShroomConn, legacy::LegacyCodec, LocalShroomTransport},
         server::{
-            server_session::{
-                IntoHandleResult, SessionHandleResult, ShroomSessionCtx, ShroomSessionEvent,
-                ShroomSessionHandler,
+            server_conn::{
+                IntoServerHandleResult, ServerConnCtx, ServerHandleResult, ShroomConnEvent,
+                ShroomConnHandler,
             },
             tick::Ticker,
-            ShroomSessionHandle,
+            SharedConnHandle,
         },
     };
 
@@ -87,7 +87,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl ShroomSessionHandler for TestHandler {
+    impl ShroomConnHandler for TestHandler {
         type Codec = Codec;
         type Error = anyhow::Error;
         type Msg = ();
@@ -95,18 +95,18 @@ mod tests {
 
         async fn make_handler(
             _make_state: &Self::MakeState,
-            _ctx: &mut ShroomSessionCtx<Self>,
-            _handle: ShroomSessionHandle<Self::Msg>,
+            _ctx: &mut ServerConnCtx<Self>,
+            _handle: SharedConnHandle<Self::Msg>,
         ) -> Result<Self, Self::Error> {
             Ok(Self::default())
         }
 
         async fn handle_msg(
             &mut self,
-            _ctx: &mut ShroomSessionCtx<Self>,
-            _msg: ShroomSessionEvent<Self::Msg>,
-        ) -> Result<SessionHandleResult, Self::Error> {
-            Ok(SessionHandleResult::Ok)
+            _ctx: &mut ServerConnCtx<Self>,
+            _msg: ShroomConnEvent<Self::Msg>,
+        ) -> Result<ServerHandleResult, Self::Error> {
+            Ok(ServerHandleResult::Ok)
         }
 
         async fn finish(self, _is_migrating: bool) -> Result<(), Self::Error> {
@@ -117,7 +117,7 @@ mod tests {
     impl TestHandler {
         async fn handle_req1(
             &mut self,
-            _ctx: &mut ShroomSessionCtx<Self>,
+            _ctx: &mut ServerConnCtx<Self>,
             req: Req1,
         ) -> anyhow::Result<()> {
             self.req1 = req;
@@ -126,25 +126,25 @@ mod tests {
 
         async fn handle_default(
             &mut self,
-            _ctx: &mut ShroomSessionCtx<Self>,
+            _ctx: &mut ServerConnCtx<Self>,
             _op: u16,
             _pr: PacketReader<'_>,
-        ) -> anyhow::Result<SessionHandleResult> {
+        ) -> anyhow::Result<ServerHandleResult> {
             Ok(().into_handle_result())
         }
     }
 
-    fn get_fake_session() -> ShroomSession<Codec> {
+    fn get_fake_session() -> ShroomConn<Codec> {
         let io = LocalShroomTransport(std::io::Cursor::new(vec![]));
         let cdc: LegacyCodec<Cursor<Vec<u8>>> = LegacyCodec::default();
-        ShroomSession::new(io, cdc.create_mock_client_codec())
+        ShroomConn::new(io, cdc.create_mock_client_codec())
     }
 
     #[tokio::test]
     async fn router() {
         let tick_gen = Ticker::spawn(Duration::from_secs(60));
         let (_tx, rx) = mpsc::channel(16);
-        let mut ctx = ShroomSessionCtx::new(
+        let mut ctx = ServerConnCtx::new(
             get_fake_session(),
             rx,
             Duration::from_secs(60),

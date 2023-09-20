@@ -12,7 +12,7 @@ use self::{
     handshake_gen::{BasicHandshakeGenerator, HandshakeGenerator},
 };
 
-use super::{session::ShroomSession, ShroomCodec, ShroomTransport};
+use super::{conn::ShroomConn, ShroomCodec, ShroomTransport};
 
 pub mod codec;
 pub mod handshake;
@@ -109,17 +109,17 @@ impl<T: ShroomTransport + Sync> ShroomCodec for LegacyCodec<T> {
     async fn create_client_session(
         &self,
         mut trans: Self::Transport,
-    ) -> NetResult<ShroomSession<Self>> {
+    ) -> NetResult<ShroomConn<Self>> {
         // Read handshake from the server
         let hshake = Handshake::read_handshake_async(&mut trans).await?;
-        Ok(ShroomSession::new(trans, self.create_client_codec(&hshake)))
+        Ok(ShroomConn::new(trans, self.create_client_codec(&hshake)))
     }
     async fn create_server_session(
         &self,
         mut trans: Self::Transport,
-    ) -> NetResult<ShroomSession<Self>> {
+    ) -> NetResult<ShroomConn<Self>> {
         let hshake = self.handshake_gen.generate_handshake();
         trans.write_all(&hshake.to_buf()).await?;
-        Ok(ShroomSession::new(trans, self.create_server_codec(&hshake)))
+        Ok(ShroomConn::new(trans, self.create_server_codec(&hshake)))
     }
 }

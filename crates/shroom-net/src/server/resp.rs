@@ -5,7 +5,7 @@ use shroom_pkt::{
 };
 
 use crate::{
-    codec::{session::ShroomSession, ShroomCodec},
+    codec::{conn::ShroomConn, ShroomCodec},
     NetResult,
 };
 
@@ -13,15 +13,15 @@ use crate::{
 // or wait for async fn's in trait becoming stable
 
 /// Represents a response which can be sent with the session
-/// Returning a SessionHandleResult
+/// Returning a ConnHandleResult
 #[async_trait]
 pub trait Response {
-    async fn send<C: ShroomCodec>(self, session: &mut ShroomSession<C>) -> NetResult<()>;
+    async fn send<C: ShroomCodec>(self, session: &mut ShroomConn<C>) -> NetResult<()>;
 }
 
 #[async_trait]
 impl Response for () {
-    async fn send<C: ShroomCodec>(self, _session: &mut ShroomSession<C>) -> NetResult<()> {
+    async fn send<C: ShroomCodec>(self, _session: &mut ShroomConn<C>) -> NetResult<()> {
         Ok(())
     }
 }
@@ -29,7 +29,7 @@ impl Response for () {
 /// Sending the value Some value If It's set
 #[async_trait]
 impl<Resp: Response + Send> Response for Option<Resp> {
-    async fn send<C: ShroomCodec>(self, session: &mut ShroomSession<C>) -> NetResult<()> {
+    async fn send<C: ShroomCodec>(self, session: &mut ShroomConn<C>) -> NetResult<()> {
         match self {
             Some(resp) => resp.send(session).await,
             None => Ok(()),
@@ -40,7 +40,7 @@ impl<Resp: Response + Send> Response for Option<Resp> {
 /// Sending all Responses in this `Vec`
 #[async_trait]
 impl<Resp: Response + Send> Response for Vec<Resp> {
-    async fn send<C: ShroomCodec>(self, session: &mut ShroomSession<C>) -> NetResult<()> {
+    async fn send<C: ShroomCodec>(self, session: &mut ShroomConn<C>) -> NetResult<()> {
         for resp in self.into_iter() {
             resp.send(session).await?;
         }
@@ -78,7 +78,7 @@ impl<T> Response for ResponsePacket<T>
 where
     T: EncodePacket + Send,
 {
-    async fn send<C: ShroomCodec>(self, session: &mut ShroomSession<C>) -> NetResult<()> {
+    async fn send<C: ShroomCodec>(self, session: &mut ShroomConn<C>) -> NetResult<()> {
         session
             .send_encode_packet_with_opcode(self.op, self.data)
             .await?;

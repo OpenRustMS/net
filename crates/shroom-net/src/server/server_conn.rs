@@ -4,18 +4,18 @@ use tokio::{sync::mpsc, time::Instant};
 use tokio_stream::StreamExt;
 
 use crate::{
-    codec::{session::ShroomSession, ShroomCodec},
+    codec::{conn::ShroomConn, ShroomCodec},
     NetError,
 };
 
 use super::{
     resp::{IntoResponse, Response},
     tick::{Tick, TickUnit},
-    ShroomSessionHandle,
+    SharedConnHandle,
 };
 
-/// Session handle result
-pub enum SessionHandleResult {
+/// Conn handle result
+pub enum ServerHandleResult {
     /// Indicates this handler finished succesfully
     Ok,
     /// Indicates the session to start a migration
@@ -24,32 +24,32 @@ pub enum SessionHandleResult {
     Pong,
 }
 
-pub trait IntoHandleResult {
-    fn into_handle_result(self) -> SessionHandleResult;
+pub trait IntoServerHandleResult {
+    fn into_handle_result(self) -> ServerHandleResult;
 }
 
-impl IntoHandleResult for () {
-    fn into_handle_result(self) -> SessionHandleResult {
-        SessionHandleResult::Ok
+impl IntoServerHandleResult for () {
+    fn into_handle_result(self) -> ServerHandleResult {
+        ServerHandleResult::Ok
     }
 }
 
-impl IntoHandleResult for SessionHandleResult {
-    fn into_handle_result(self) -> SessionHandleResult {
+impl IntoServerHandleResult for ServerHandleResult {
+    fn into_handle_result(self) -> ServerHandleResult {
         self
     }
 }
 
-pub enum ShroomSessionEvent<Msg> {
+pub enum ShroomConnEvent<Msg> {
     IncomingPacket(ShroomPacketData),
     Message(Msg),
     Ping,
     Tick(TickUnit),
 }
 
-/// Session handler trait, which used to handle packets and handle messages
+/// Conn handler trait, which used to handle packets and handle messages
 #[async_trait::async_trait]
-pub trait ShroomSessionHandler: Sized {
+pub trait ShroomConnHandler: Sized {
     type Codec: ShroomCodec + Send + 'static;
     type Error: From<NetError> + std::fmt::Debug + Send + 'static;
     type Msg: Send + 'static;
@@ -61,34 +61,34 @@ pub trait ShroomSessionHandler: Sized {
 
     async fn make_handler(
         make_state: &Self::MakeState,
-        ctx: &mut ShroomSessionCtx<Self>,
-        handle: ShroomSessionHandle<Self::Msg>,
+        ctx: &mut ServerConnCtx<Self>,
+        handle: SharedConnHandle<Self::Msg>,
     ) -> Result<Self, Self::Error>;
 
     /// Handle a new event
     async fn handle_msg(
         &mut self,
-        ctx: &mut ShroomSessionCtx<Self>,
-        msg: ShroomSessionEvent<Self::Msg>,
-    ) -> Result<SessionHandleResult, Self::Error>;
+        ctx: &mut ServerConnCtx<Self>,
+        msg: ShroomConnEvent<Self::Msg>,
+    ) -> Result<ServerHandleResult, Self::Error>;
 
     async fn finish(self, is_migrating: bool) -> Result<(), Self::Error>;
 }
 
-pub struct ShroomSessionCtx<H: ShroomSessionHandler> {
-    session: ShroomSession<H::Codec>,
+pub struct ServerConnCtx<H: ShroomConnHandler> {
+    session: ShroomConn<H::Codec>,
     rx: mpsc::Receiver<H::Msg>,
     tick: Tick,
     pending_ping: bool,
     ping: tokio::time::Interval,
 }
 
-impl<H> ShroomSessionCtx<H>
+impl<H> ServerConnCtx<H>
 where
-    H: ShroomSessionHandler + Send,
+    H: ShroomConnHandler + Send,
 {
     pub(crate) fn new(
-        session: ShroomSession<H::Codec>,
+        session: ShroomConn<H::Codec>,
         rx: mpsc::Receiver<H::Msg>,
         ping_dur: Duration,
         tick: Tick,
@@ -103,11 +103,11 @@ where
         }
     }
 
-    pub fn session(&self) -> &ShroomSession<H::Codec> {
+    pub fn session(&self) -> &ShroomConn<H::Codec> {
         &self.session
     }
 
-    pub fn session_mut(&mut self) -> &mut ShroomSession<H::Codec> {
+    pub fn session_mut(&mut self) -> &mut ShroomConn<H::Codec> {
         &mut self.session
     }
 
@@ -124,23 +124,23 @@ where
             let res = tokio::select! {
                 Some(packet) = self.session.next() => {
                     let packet = packet?;
-                    handler.handle_msg(self, ShroomSessionEvent::IncomingPacket(packet)).await?
+                    handler.handle_msg(self, ShroomConnEvent::IncomingPacket(packet)).await?
                 }
                 Some(msg) = self.rx.recv() => {
-                    handler.handle_msg(self, ShroomSessionEvent::Message(msg)).await?
+                    handler.handle_msg(self, ShroomConnEvent::Message(msg)).await?
                 }
                 Some(msg) = handler.recv_msg() => {
-                    handler.handle_msg(self, ShroomSessionEvent::Message(msg)).await?
+                    handler.handle_msg(self, ShroomConnEvent::Message(msg)).await?
                 }
                 tick = self.tick.next() => {
-                    handler.handle_msg(self, ShroomSessionEvent::Tick(tick)).await?
+                    handler.handle_msg(self, ShroomConnEvent::Tick(tick)).await?
                 }
                 _ = self.ping.tick() => {
                     if self.pending_ping {
                         return Err(NetError::PingTimeout.into());
                     }
                     self.pending_ping = true;
-                    handler.handle_msg(self, ShroomSessionEvent::Ping).await?
+                    handler.handle_msg(self, ShroomConnEvent::Ping).await?
                 }
 
                 else => {
@@ -151,11 +151,11 @@ where
 
             match res {
                 // Continue to run session
-                SessionHandleResult::Ok => (),
+                ServerHandleResult::Ok => (),
                 // Migrate quits the session
-                SessionHandleResult::Migrate => return Ok(true),
+                ServerHandleResult::Migrate => return Ok(true),
                 // Reset the pending ping
-                SessionHandleResult::Pong => {
+                ServerHandleResult::Pong => {
                     self.pending_ping = false;
                 }
             }
