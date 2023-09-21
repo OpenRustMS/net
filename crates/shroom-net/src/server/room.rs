@@ -163,7 +163,7 @@ where
     /// by leaving the old room first and then joining the new room
     pub async fn switch_to(
         &mut self,
-        other_room: Room<S>,
+        other_room: &Room<S>,
         join_data: S::JoinData,
     ) -> anyhow::Result<()>
     where
