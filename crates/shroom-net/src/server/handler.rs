@@ -138,8 +138,8 @@ mod tests {
         let mut ctx = ServerConnCtx::new(
             get_fake_session(),
             rx,
-            Duration::from_secs(60),
             tick_gen.get_tick(),
+            Duration::from_secs(60),
         );
         let mut state = TestHandler::default();
 

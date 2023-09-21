@@ -25,6 +25,7 @@ pub struct ShroomRuntimeConfig {
     pub game_ports: RangeInclusive<u16>,
     pub tick_duration: Duration,
     pub ping_dur: Duration,
+    pub migration_delay: Duration,
     pub msg_cap: usize,
 }
 
@@ -146,6 +147,7 @@ where
             tick: self.ticker.get_tick(),
             msg_cap: self.cfg.msg_cap,
             ping_dur: self.cfg.ping_dur,
+            migration_delay: self.cfg.migration_delay,
         };
 
         let login_server = ShroomServer::<S::LoginHandler>::new(cfg);
@@ -175,6 +177,7 @@ where
                 tick: self.ticker.get_tick(),
                 msg_cap: self.cfg.msg_cap,
                 ping_dur: self.cfg.ping_dur,
+                migration_delay: self.cfg.migration_delay,
             };
             let game_server = ShroomServer::<S::GameHandler>::new(cfg);
 

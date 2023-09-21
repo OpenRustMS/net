@@ -67,6 +67,7 @@ pub struct ShroomServerConfig<H: ShroomConnHandler> {
     pub tick: Tick,
     pub msg_cap: usize,
     pub ping_dur: Duration,
+    pub migration_delay: Duration,
 }
 
 impl<H: ShroomConnHandler> Debug for ShroomServerConfig<H> {
@@ -119,8 +120,9 @@ where
         rx: mpsc::Receiver<H::Msg>,
         handle: SharedConnHandle<H::Msg>,
     ) -> Result<(), H::Error> {
+        let tick = cfg.tick.clone();
         let session = cfg.codec.create_server_session(io).await?;
-        let mut ctx = ServerConnCtx::new(session, rx, Duration::from_secs(30), cfg.tick.clone());
+        let mut ctx = ServerConnCtx::new(session, rx, tick, cfg.ping_dur);
         let mut handler = H::make_handler(&cfg.make_state, &mut ctx, handle).await?;
         let res = ctx.exec(&mut handler).await;
 
@@ -132,7 +134,7 @@ where
             }
         };
         handler.finish(migrate).await?;
-        sleep(Duration::from_secs(10)).await; //TODO migrate delay
+        sleep(cfg.migration_delay).await; //TODO migrate delay
         let _ = ctx.close().await;
         // Close the connection here
         Ok(())

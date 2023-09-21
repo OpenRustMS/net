@@ -11,9 +11,9 @@ quickcheck = "1"
 anyhow = "1"
 array-init = "2"
 arrayvec = "0.7"
-bytes = "1.4"
+bytes = "1"
 chrono = "0.4"
-either = "1.9"
+either = "1"
 num_enum = "0.7"
 packed_struct = "0.10"
 pretty-hex = "0.3"
@@ -23,7 +23,7 @@ bytemuck = "1"
 paste = "1.0"
 rand = "0.8"
 tokio = { version = "1", features = ["rt", "macros", "io-util"] }
-tokio-stream = { version = "0.1", features = ["net"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 cipher = { version = "0.4", features = ["block-padding"] }
 aes = "0.8"
@@ -36,4 +36,5 @@ quickcheck = "1"
 parking_lot = "0.12"
 derive_more = "0.99"
 euclid = "0.22"
-shroom-pkt = { version = "0.1.0", path = "../shroom-pkt" }
+shroom-pkt = { version = "0.1", path = "../shroom-pkt" }
+pin-project = "1.1.3"

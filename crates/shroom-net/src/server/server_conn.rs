@@ -87,8 +87,8 @@ where
     pub(crate) fn new(
         session: ShroomConn<H::Codec>,
         rx: mpsc::Receiver<H::Msg>,
-        ping_dur: Duration,
         tick: Tick,
+        ping_dur: Duration,
     ) -> Self {
         let ping = tokio::time::interval_at(Instant::now() + ping_dur, ping_dur);
         Self {

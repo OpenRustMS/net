@@ -1,42 +1,48 @@
 use std::{
     hash::Hash,
+    pin::pin,
     sync::{atomic::AtomicUsize, Arc},
+    task::Poll,
 };
 
+use futures::Stream;
 use indexmap::IndexMap;
+use pin_project::pin_project;
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
+};
+
+use tokio_stream::{
+    wrappers::{BroadcastStream, ReceiverStream},
+    StreamExt,
 };
 
 use super::tick::Tick;
 
-/*  TODO:
-    - TODO ensure the force leave channel has enough capacity or is unbounded
-    - Handle client being out of capacity(kick the client from the field)
-*/
+// TODO: handle client being out of capacity
+
+pub type BroadcastMsg<Key, Msg> = (Option<Key>, Msg);
 
 /// A set of clients in a room
 #[derive(Debug)]
 pub struct RoomSet<Key, Msg> {
     clients: IndexMap<Key, mpsc::Sender<Msg>>,
-}
-
-impl<Key, Msg> Default for RoomSet<Key, Msg>
-where
-    Key: Hash + Eq + PartialEq,
-{
-    fn default() -> Self {
-        Self {
-            clients: IndexMap::default(),
-        }
-    }
+    broadcast_tx: broadcast::Sender<(Option<Key>, Msg)>,
 }
 
 impl<Msg, Key> RoomSet<Key, Msg>
 where
-    Key: Hash + Eq + PartialEq,
+    Key: Hash + Eq + PartialEq + Clone,
+    Msg: Clone,
 {
+    fn new(broadcast_tx: broadcast::Sender<BroadcastMsg<Key, Msg>>) -> Self {
+        Self {
+            clients: IndexMap::default(),
+            broadcast_tx,
+        }
+    }
+
     /// Adds a new client
     pub fn add(&mut self, key: Key, tx: mpsc::Sender<Msg>) {
         self.clients.insert(key, tx);
@@ -62,40 +68,35 @@ where
             .get(key)
             .ok_or_else(|| anyhow::format_err!("Unable to find session"))
     }
-}
 
-impl<Key, Msg> RoomSet<Key, Msg>
-where
-    Key: Hash + Eq + PartialEq,
-    Msg: Clone,
-{
     /// Broadcasts a message to all clients
     pub fn broadcast(&self, msg: Msg) -> anyhow::Result<()> {
-        for sess in self.clients.values() {
-            let _ = sess.try_send(msg.clone());
-        }
+        // If it fails no clients are there to listen, which is a non-problem
+        let _ = self.broadcast_tx.send((None, msg));
         Ok(())
     }
 
     /// Broadcasts a message to all clients except the source
-    pub fn broadcast_filter(&self, msg: Msg, source: &Key) -> anyhow::Result<()> {
-        for (key, sess) in self.clients.iter() {
-            if source == key {
-                continue;
-            }
-            let _ = sess.try_send(msg.clone());
-        }
+    pub fn broadcast_filter(&self, msg: Msg, src: &Key) -> anyhow::Result<()> {
+        // If it fails no clients are there to listen, which is a non-problem
+        let _ = self.broadcast_tx.send((Some(src.clone()), msg));
         Ok(())
     }
 }
 
 /// The state of a room processes incoming messages
 /// and maintains the room
-pub trait RoomState {
+pub trait RoomState: Sized {
     type Key: PartialEq + Eq + std::hash::Hash + Send + Sync + Clone + 'static;
-    type ConnMsg: Send + Sync + 'static;
+    type ConnMsg: Send + Sync + Clone + 'static;
     type Msg: Send + Sync + 'static;
     type JoinData: Send + Sync + 'static;
+    type CreateData;
+
+    fn create(
+        create_data: Self::CreateData,
+        conns: RoomSet<Self::Key, Self::ConnMsg>,
+    ) -> anyhow::Result<Self>;
 
     fn sessions(&self) -> &RoomSet<Self::Key, Self::ConnMsg>;
     fn session_mut(&mut self) -> &mut RoomSet<Self::Key, Self::ConnMsg>;
@@ -123,11 +124,79 @@ pub enum RoomMsg<S: RoomState> {
     RoomMsg((Option<S::Key>, S::Msg)),
 }
 
+#[pin_project]
+pub struct RoomStream<S: RoomState> {
+    id: S::Key,
+    #[pin]
+    rx_conn: ReceiverStream<S::ConnMsg>,
+    #[pin]
+    rx_br: BroadcastStream<BroadcastMsg<S::Key, S::ConnMsg>>,
+}
+
+impl<S: RoomState> std::fmt::Debug for RoomStream<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoomStream")
+            .field("rx_br", &self.rx_br)
+            .finish()
+    }
+}
+
+impl<S: RoomState> Stream for RoomStream<S> {
+    type Item = S::ConnMsg;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        //TODO maybe later allow to rewind but for now
+        // we just send None if client is out of sync
+        let mut me = self.project();
+        use Poll::*;
+
+        let mut done = true;
+
+        match me.rx_conn.poll_next(cx) {
+            Ready(Some(val)) => return Ready(Some(val)),
+            Ready(None) => {}
+            Pending => done = false,
+        }
+
+        loop {
+            match me.rx_br.as_mut().poll_next(cx) {
+                // only take message If it's not filtered
+                Ready(Some(Ok((src, msg)))) => match src {
+                    // Message is not filtered
+                    None => return Ready(Some(msg)),
+                    // Message is not filtered for this client
+                    Some(src) if src != *me.id => return Ready(Some(msg)),
+                    // Message is filtered for this client skip it
+                    _ => {
+                        continue;
+                    }
+                },
+                Ready(Some(Err(_))) | Ready(None) => {
+                    break;
+                }
+                Pending => {
+                    done = false;
+                    break;
+                }
+            }
+        }
+
+        if done {
+            Ready(None)
+        } else {
+            Pending
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct RoomJoinHandle<S: RoomState> {
     pub tx_room: mpsc::Sender<RoomMsg<S>>,
-    pub rx_conn: mpsc::Receiver<S::ConnMsg>,
     pub id: S::Key,
+    rx: RoomStream<S>,
     left: bool,
     force_leave_tx: mpsc::Sender<S::Key>,
 }
@@ -155,8 +224,15 @@ where
         Ok(())
     }
 
-    pub async fn recv(&mut self) -> Option<S::ConnMsg> {
-        self.rx_conn.recv().await
+    pub fn stream(&mut self) -> &mut RoomStream<S> {
+        &mut self.rx
+    }
+
+    pub async fn recv(&mut self) -> anyhow::Result<S::ConnMsg> {
+        self.rx
+            .next()
+            .await
+            .ok_or_else(|| anyhow::format_err!("Room closed"))
     }
 
     /// Allows to switch this handle to another room
@@ -201,6 +277,7 @@ impl<S: RoomState> Drop for RoomJoinHandle<S> {
 pub struct Room<S: RoomState> {
     kill: JoinHandle<anyhow::Result<()>>,
     tx: mpsc::Sender<RoomMsg<S>>,
+    broadcast_tx: broadcast::Sender<BroadcastMsg<S::Key, S::ConnMsg>>,
     session_count: Arc<AtomicUsize>,
     force_leave_tx: mpsc::Sender<S::Key>,
 }
@@ -222,9 +299,18 @@ where
     }
 
     /// Spawns this room, returning a handle to this room
-    pub fn spawn(state: S, tick: Tick) -> Self {
-        let (tx, rx) = mpsc::channel(128);
+    pub fn spawn(
+        create: S::CreateData,
+        tick: Tick,
+        room_cap: usize,
+        broadcast_cap: usize,
+    ) -> anyhow::Result<Self> {
+        let (br_tx, _) = broadcast::channel(broadcast_cap);
+        let (tx, rx) = mpsc::channel(room_cap);
         let (force_leave_tx, force_leave_rx) = mpsc::channel(128);
+
+        let room_set = RoomSet::new(br_tx.clone());
+        let state = S::create(create, room_set)?;
         let session_count = Arc::new(AtomicUsize::new(0));
         let kill = tokio::spawn(Self::exec(
             state,
@@ -233,12 +319,13 @@ where
             force_leave_rx,
             session_count.clone(),
         ));
-        Self {
+        Ok(Self {
             kill,
             tx,
             session_count,
             force_leave_tx,
-        }
+            broadcast_tx: br_tx,
+        })
     }
 
     /// Joins the room with the given sender
@@ -261,10 +348,16 @@ where
 
         rx.await?;
 
+        let rx_broadcast = self.broadcast_tx.subscribe();
+
         Ok(RoomJoinHandle {
+            id: id.clone(),
             tx_room: self.tx.clone(),
-            rx_conn,
-            id,
+            rx: RoomStream {
+                id,
+                rx_conn: ReceiverStream::new(rx_conn),
+                rx_br: BroadcastStream::new(rx_broadcast),
+            },
             left: false,
             force_leave_tx: self.force_leave_tx.clone(),
         })
@@ -340,12 +433,13 @@ mod tests {
     pub enum RoomMsg {
         Add(u32),
         Sub(u32),
+        AddBroad(u32),
     }
 
-    #[derive(Default, Debug)]
+    #[derive(Debug)]
     pub struct RoomState {
         v: u32,
-        sessions: RoomSet<ClientId, u32>,
+        conns: RoomSet<ClientId, u32>,
     }
 
     impl super::RoomState for RoomState {
@@ -353,36 +447,52 @@ mod tests {
         type ConnMsg = u32;
         type Msg = RoomMsg;
         type JoinData = ();
+        type CreateData = u32;
 
-        fn handle_msg(&mut self, _src: Option<Self::Key>, msg: Self::Msg) -> anyhow::Result<()> {
+        fn handle_msg(&mut self, src: Option<Self::Key>, msg: Self::Msg) -> anyhow::Result<()> {
             match msg {
                 RoomMsg::Add(v) => self.v += v,
                 RoomMsg::Sub(v) => self.v -= v,
+                RoomMsg::AddBroad(v) => {
+                    self.v += v;
+                    self.conns.broadcast_filter(self.v, &src.unwrap())?;
+                    return Ok(());
+                }
             };
 
-            self.sessions.broadcast(self.v)?;
+            self.conns.broadcast(self.v)?;
             Ok(())
         }
 
         fn handle_tick(&mut self) -> anyhow::Result<()> {
             self.v += 1;
-            self.sessions.broadcast(self.v)?;
+            self.conns.broadcast(self.v)?;
             Ok(())
         }
 
         fn sessions(&self) -> &RoomSet<Self::Key, Self::ConnMsg> {
-            &self.sessions
+            &self.conns
         }
 
         fn session_mut(&mut self) -> &mut RoomSet<Self::Key, Self::ConnMsg> {
-            &mut self.sessions
+            &mut self.conns
+        }
+
+        fn create(
+            create_data: Self::CreateData,
+            conns: RoomSet<Self::Key, Self::ConnMsg>,
+        ) -> anyhow::Result<Self> {
+            Ok(Self {
+                v: create_data,
+                conns,
+            })
         }
     }
 
     #[tokio::test]
     async fn simple_room() {
         let ticker = Ticker::spawn_from_millis(10);
-        let room = Room::spawn(RoomState::default(), ticker.get_tick());
+        let room = Room::<RoomState>::spawn(0, ticker.get_tick(), 16, 16).unwrap();
         assert_eq!(room.conn_count(), 0);
 
         let mut r = room.join_with_channel(1, ()).await.unwrap();
@@ -391,6 +501,11 @@ mod tests {
         r.send(RoomMsg::Add(10)).await.unwrap();
         assert_eq!(r.recv().await.unwrap(), 10);
 
+        r.send(RoomMsg::Sub(5)).await.unwrap();
+        assert_eq!(r.recv().await.unwrap(), 5);
+
+        // we should not recv this message
+        r.send(RoomMsg::AddBroad(5)).await.unwrap();
         r.send(RoomMsg::Sub(5)).await.unwrap();
         assert_eq!(r.recv().await.unwrap(), 5);
 
@@ -404,7 +519,7 @@ mod tests {
     #[tokio::test]
     async fn drop_leave() {
         let ticker = Ticker::spawn_from_millis(10);
-        let room = Room::spawn(RoomState::default(), ticker.get_tick());
+        let room = Room::<RoomState>::spawn(0, ticker.get_tick(), 16, 16).unwrap();
         assert_eq!(room.conn_count(), 0);
 
         let r = room.join_with_channel(1, ()).await.unwrap();
