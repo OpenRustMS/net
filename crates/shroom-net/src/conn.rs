@@ -1,6 +1,9 @@
 use std::{io, net::SocketAddr};
 
-use crate::NetResult;
+use crate::{
+    codec::{ShroomCodec, ShroomTransport},
+    NetResult,
+};
 
 use bytes::BytesMut;
 use futures::{SinkExt, Stream, StreamExt};
@@ -11,8 +14,6 @@ use shroom_pkt::{
 };
 use tokio::io::{ReadHalf, WriteHalf};
 use tokio_util::codec::{FramedRead, FramedWrite};
-
-use super::{ShroomCodec, ShroomTransport};
 
 pub struct ShroomConn<C: ShroomCodec> {
     r: FramedRead<ReadHalf<C::Transport>, C::Decoder>,

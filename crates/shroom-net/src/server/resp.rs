@@ -4,10 +4,7 @@ use shroom_pkt::{
     EncodePacket,
 };
 
-use crate::{
-    codec::{conn::ShroomConn, ShroomCodec},
-    NetResult,
-};
+use crate::{codec::ShroomCodec, NetResult, ShroomConn};
 
 //TODO: either remove async_trait for performance reasons
 // or wait for async fn's in trait becoming stable

@@ -3,7 +3,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     crypto::{SharedCryptoContext, ShroomCrypto, ShroomVersion},
-    NetResult,
+    NetResult, ShroomConn,
 };
 
 use self::{
@@ -12,7 +12,7 @@ use self::{
     handshake_gen::{BasicHandshakeGenerator, HandshakeGenerator},
 };
 
-use super::{conn::ShroomConn, ShroomCodec, ShroomTransport};
+use super::{ShroomCodec, ShroomTransport};
 
 pub mod codec;
 pub mod handshake;

@@ -7,6 +7,7 @@ pub mod tick;
 
 use std::{
     collections::HashMap,
+    fmt::Debug,
     net::SocketAddr,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -25,11 +26,7 @@ use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 
 use crate::{codec::ShroomCodec, NetError, NetResult};
 
-use self::{
-    room::{Room, RoomState},
-    server_conn::ShroomConnHandler,
-    tick::Tick,
-};
+use self::{server_conn::ShroomConnHandler, tick::Tick};
 
 pub use server_conn::ServerConnCtx;
 pub use server_conn::ServerHandleResult;
@@ -63,40 +60,50 @@ impl<H: ShroomConnHandler> Drop for ServerConnHandle<H> {
     }
 }
 
+pub struct ShroomServerConfig<H: ShroomConnHandler> {
+    pub codec: Arc<H::Codec>,
+    pub make_state: H::MakeState,
+    pub tick: Tick,
+    pub msg_cap: usize,
+    pub ping_dur: Duration,
+}
+
+impl<H: ShroomConnHandler> Debug for ShroomServerConfig<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShroomServerConfig")
+            .field("tick", &self.tick)
+            .field("msg_cap", &self.msg_cap)
+            .field("ping_dur", &self.ping_dur)
+            .finish()
+    }
+}
+
 pub struct ShroomServer<H: ShroomConnHandler> {
-    codec: Arc<H::Codec>,
-    make_state: Arc<H::MakeState>,
+    cfg: Arc<ShroomServerConfig<H>>,
     clients: HashMap<ClientId, ServerConnHandle<H>>,
     next_id: AtomicUsize,
-    tick: Tick,
 }
 
 impl<H: ShroomConnHandler> std::fmt::Debug for ShroomServer<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ShroomServer")
             .field("next_id", &self.next_id)
-            .field("ticker", &self.tick)
+            .field("cfg", &self.cfg)
             .finish()
     }
 }
 
 impl<H: ShroomConnHandler> ShroomServer<H> {
-    pub fn new(codec: Arc<H::Codec>, make_state: H::MakeState, tick: Tick) -> Self {
+    pub fn new(cfg: ShroomServerConfig<H>) -> Self {
         Self {
-            codec,
+            cfg: Arc::new(cfg),
             clients: HashMap::new(),
             next_id: AtomicUsize::new(0),
-            make_state: Arc::new(make_state),
-            tick,
         }
     }
 
     pub fn next_id(&self) -> usize {
         self.next_id.fetch_add(1, Ordering::Relaxed)
-    }
-
-    pub fn spawn_room<State: RoomState + Send + 'static>(&self, state: State) -> Room<State> {
-        Room::spawn(state, self.tick.clone())
     }
 }
 
@@ -106,28 +113,26 @@ where
     H::Codec: Send + Sync + 'static,
 {
     async fn init_conn(
-        mh: Arc<H::MakeState>,
-        codec: Arc<H::Codec>,
+        cfg: Arc<ShroomServerConfig<H>>,
         io: <H::Codec as ShroomCodec>::Transport,
         rx: mpsc::Receiver<H::Msg>,
         handle: SharedConnHandle<H::Msg>,
-        tick: Tick,
     ) -> Result<(), H::Error> {
-        let session = codec.create_server_session(io).await?;
-        let mut ctx = ServerConnCtx::new(session, rx, Duration::from_secs(30), tick);
-        let mut handler = H::make_handler(&mh, &mut ctx, handle).await?;
+        let session = cfg.codec.create_server_session(io).await?;
+        let mut ctx = ServerConnCtx::new(session, rx, Duration::from_secs(30), cfg.tick.clone());
+        let mut handler = H::make_handler(&cfg.make_state, &mut ctx, handle).await?;
         let res = ctx.exec(&mut handler).await;
+        ctx.close().await?;
 
-        match res {
-            Ok(migrate) => {
-                handler.finish(migrate).await?;
-            }
+        let migrate = match res {
+            Ok(v) => v,
             Err(err) => {
-                // TODO error
                 log::error!("conn error: {:?}", err);
-                handler.finish(false).await?;
+                false
             }
-        }
+        };
+        handler.finish(migrate).await?;
+        // Close the connection here
         Ok(())
     }
 
@@ -141,14 +146,8 @@ where
                     let id = self.next_id();
                     let (tx, rx) = mpsc::channel(16);
                     let handle = SharedConnHandle::<H::Msg> { id, tx };
-                    let kill = tokio::spawn(Self::init_conn(
-                        self.make_state.clone(),
-                        self.codec.clone(),
-                        io,
-                        rx,
-                        handle.clone(),
-                        self.tick.clone(),
-                    ));
+                    let kill =
+                        tokio::spawn(Self::init_conn(self.cfg.clone(), io, rx, handle.clone()));
 
                     self.clients
                         .insert(id, ServerConnHandle { kill, conn: handle });

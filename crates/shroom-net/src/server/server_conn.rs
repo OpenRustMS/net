@@ -3,10 +3,7 @@ use std::time::Duration;
 use tokio::{sync::mpsc, time::Instant};
 use tokio_stream::StreamExt;
 
-use crate::{
-    codec::{conn::ShroomConn, ShroomCodec},
-    NetError,
-};
+use crate::{codec::ShroomCodec, NetError, ShroomConn};
 
 use super::{
     resp::{IntoResponse, Response},
@@ -50,7 +47,7 @@ pub enum ShroomConnEvent<Msg> {
 /// Conn handler trait, which used to handle packets and handle messages
 #[async_trait::async_trait]
 pub trait ShroomConnHandler: Sized {
-    type Codec: ShroomCodec + Send + 'static;
+    type Codec: ShroomCodec + Send + Sync + 'static;
     type Error: From<NetError> + std::fmt::Debug + Send + 'static;
     type Msg: Send + 'static;
     type MakeState: Send + Sync + 'static;
@@ -101,6 +98,12 @@ where
             pending_ping: false,
             ping,
         }
+    }
+
+    pub async fn close(self) -> Result<(), H::Error> {
+        self.session.close().await?;
+
+        Ok(())
     }
 
     pub fn session(&self) -> &ShroomConn<H::Codec> {

@@ -13,17 +13,19 @@ use crate::{codec::ShroomCodec, NetResult};
 use super::{
     server_conn::ShroomConnHandler,
     tick::{Tick, Ticker},
-    ShroomServer,
+    ShroomServer, ShroomServerConfig,
 };
 
 #[derive(Debug)]
-pub struct ShroomServerConfig {
+pub struct ShroomRuntimeConfig {
     pub server_name: String,
     pub external_ip: IpAddr,
     pub listen_ip: IpAddr,
     pub login_port: u16,
     pub game_ports: RangeInclusive<u16>,
     pub tick_duration: Duration,
+    pub ping_dur: Duration,
+    pub msg_cap: usize,
 }
 
 #[async_trait::async_trait]
@@ -37,7 +39,7 @@ pub trait ShroomServerHandler {
     async fn build_services(
         &self,
         ticker: &Ticker,
-        cfg: Arc<ShroomServerConfig>,
+        cfg: Arc<ShroomRuntimeConfig>,
     ) -> anyhow::Result<Self::Services>;
 
     fn make_login_handler(
@@ -57,7 +59,7 @@ pub trait ShroomServerHandler {
 #[derive(Debug)]
 pub struct ShroomServerRuntime<S: ShroomServerHandler> {
     codec: Arc<S::Codec>,
-    cfg: Arc<ShroomServerConfig>,
+    cfg: Arc<ShroomRuntimeConfig>,
     ticker: Ticker,
     game_servers: Vec<JoinHandle<()>>,
     login_server: Option<JoinHandle<()>>,
@@ -71,7 +73,7 @@ where
 {
     pub async fn create(
         codec: S::Codec,
-        cfg: ShroomServerConfig,
+        cfg: ShroomRuntimeConfig,
         handler: S,
     ) -> anyhow::Result<Self> {
         let cfg = Arc::new(cfg);
@@ -138,11 +140,15 @@ where
             .handler
             .make_login_handler(self.services.clone(), self.ticker.get_tick())?;
 
-        let login_server = ShroomServer::<S::LoginHandler>::new(
-            self.codec.clone(),
-            login_make,
-            self.ticker.get_tick(),
-        );
+        let cfg = ShroomServerConfig {
+            codec: self.codec.clone(),
+            make_state: login_make,
+            tick: self.ticker.get_tick(),
+            msg_cap: self.cfg.msg_cap,
+            ping_dur: self.cfg.ping_dur,
+        };
+
+        let login_server = ShroomServer::<S::LoginHandler>::new(cfg);
 
         self.login_server = Some(Self::spawn_supervised(
             "login",
@@ -163,11 +169,14 @@ where
                 self.ticker.get_tick(),
                 channel_id,
             )?;
-            let game_server = ShroomServer::<S::GameHandler>::new(
-                self.codec.clone(),
-                game_make,
-                self.ticker.get_tick(),
-            );
+            let cfg = ShroomServerConfig {
+                codec: self.codec.clone(),
+                make_state: game_make,
+                tick: self.ticker.get_tick(),
+                msg_cap: self.cfg.msg_cap,
+                ping_dur: self.cfg.ping_dur,
+            };
+            let game_server = ShroomServer::<S::GameHandler>::new(cfg);
 
             self.game_servers.push(Self::spawn_supervised(
                 "game",

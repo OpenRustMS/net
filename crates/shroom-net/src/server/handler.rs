@@ -29,16 +29,6 @@ where
 /// Declares an async router fn
 /// which routes the packet to the matching handler
 /// by reading the Opcode and checking It against the `OPCODE` from the `HasOpcode` Trait
-/// Example:
-///
-/// shroom_router_fn!(
-///     handle, // name
-///     State,  // State type
-///     ShroomConn<TcpStream>,  // Conn type
-///     anyhow::Error, // Error type
-///     State::handle_default, // fallback handler
-///     PacketReq => State::handle_req, // Handle PacketReq with handle_req
-/// );
 #[macro_export]
 macro_rules! shroom_router_fn {
     ($fname:ident, $handler:ty, $err:ty, $default_handler:expr, $($req:ty => $handler_fn:expr),* $(,)?) => {
@@ -66,7 +56,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::{
-        codec::{conn::ShroomConn, legacy::LegacyCodec, LocalShroomTransport},
+        codec::{legacy::LegacyCodec, LocalShroomTransport},
         server::{
             server_conn::{
                 IntoServerHandleResult, ServerConnCtx, ServerHandleResult, ShroomConnEvent,
@@ -75,6 +65,7 @@ mod tests {
             tick::Ticker,
             SharedConnHandle,
         },
+        ShroomConn,
     };
 
     pub type Req1 = WithOpcode<0, u16>;

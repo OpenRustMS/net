@@ -1,6 +1,5 @@
 #![allow(non_upper_case_globals)]
 
-pub mod conn;
 pub mod legacy;
 
 use std::pin::Pin;
@@ -8,11 +7,9 @@ use std::pin::Pin;
 use shroom_pkt::ShroomPacketData;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::{NetError, NetResult};
+use crate::{NetError, NetResult, ShroomConn};
 
 use tokio_util::codec::{Decoder, Encoder};
-
-use self::conn::ShroomConn;
 
 pub trait ShroomTransport: AsyncWrite + AsyncRead + Unpin + Send + 'static {
     fn peer_addr(&self) -> NetResult<std::net::SocketAddr>;
