@@ -26,6 +26,7 @@ pub struct ShroomServerConfig {
     pub tick_duration: Duration,
 }
 
+#[async_trait::async_trait]
 pub trait ShroomServerHandler {
     type Codec: ShroomCodec + Send + Sync + 'static;
     type GameHandler: ShroomConnHandler<Codec = Self::Codec> + Send + 'static;
@@ -33,7 +34,7 @@ pub trait ShroomServerHandler {
 
     type Services;
 
-    fn build_services(
+    async fn build_services(
         &self,
         ticker: &Ticker,
         cfg: Arc<ShroomServerConfig>,
@@ -68,10 +69,14 @@ impl<S> ShroomServerRuntime<S>
 where
     S: ShroomServerHandler,
 {
-    pub fn create(codec: S::Codec, cfg: ShroomServerConfig, handler: S) -> anyhow::Result<Self> {
+    pub async fn create(
+        codec: S::Codec,
+        cfg: ShroomServerConfig,
+        handler: S,
+    ) -> anyhow::Result<Self> {
         let cfg = Arc::new(cfg);
         let ticker = Ticker::spawn(cfg.tick_duration);
-        let services = handler.build_services(&ticker, cfg.clone())?;
+        let services = handler.build_services(&ticker, cfg.clone()).await?;
         Ok(Self {
             codec: Arc::new(codec),
             cfg,
