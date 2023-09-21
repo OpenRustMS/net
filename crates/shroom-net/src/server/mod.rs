@@ -21,6 +21,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc,
     task::JoinHandle,
+    time::sleep,
 };
 use tokio_stream::{wrappers::TcpListenerStream, StreamExt};
 
@@ -122,7 +123,6 @@ where
         let mut ctx = ServerConnCtx::new(session, rx, Duration::from_secs(30), cfg.tick.clone());
         let mut handler = H::make_handler(&cfg.make_state, &mut ctx, handle).await?;
         let res = ctx.exec(&mut handler).await;
-        let _ = ctx.close().await;
 
         let migrate = match res {
             Ok(v) => v,
@@ -132,6 +132,8 @@ where
             }
         };
         handler.finish(migrate).await?;
+        sleep(Duration::from_secs(10)).await; //TODO migrate delay
+        let _ = ctx.close().await;
         // Close the connection here
         Ok(())
     }
