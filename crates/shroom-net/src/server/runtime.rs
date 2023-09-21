@@ -88,6 +88,23 @@ where
         })
     }
 
+    pub fn spawn_task<F>(
+        &self,
+        label: &'static str,
+        make_fut: impl Fn(Arc<S::Services>) -> F,
+    ) -> JoinHandle<()>
+    where
+        F: Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        let fut = make_fut(self.services.clone());
+        tokio::spawn(async move {
+            match fut.await {
+                Ok(()) => (),
+                Err(err) => log::error!("Error for task({label}): {err}"),
+            }
+        })
+    }
+
     fn spawn_supervised<F>(label: &'static str, fut: F) -> JoinHandle<()>
     where
         F: Future<Output = NetResult<()>> + Send + 'static,
