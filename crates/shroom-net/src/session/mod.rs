@@ -204,15 +204,12 @@ where
     /// Closes a session, but catches potential panics
     /// and errors during the process to close the session
     async fn safe_close(&self, session_data: Backend::Data) -> SessionResult<(), Backend> {
-        let res = AssertUnwindSafe(self.close_session_inner(session_data))
-            .catch_unwind()
-            .await;
-
-        // TODO handle errors properly and add fallback handling via the backend
-        match res {
-            Err(_panic) => Err(SessionError::SavePanic),
-            Ok(res) => res,
-        }
+        /*let res = AssertUnwindSafe(self.close_session_inner(session_data))
+        .catch_unwind()
+        .await;*/
+        //TODO handle unwinding
+        let res = self.close_session_inner(session_data).await;
+        res
     }
 
     /// Create a session with the given key and data
