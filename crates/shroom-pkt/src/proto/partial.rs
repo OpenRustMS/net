@@ -211,7 +211,7 @@ mod tests {
             partial::{PartialData, PartialFlag},
             CondOption,
         },
-        test_util::test_enc_dec,
+        test_enc_dec_borrow,
     };
 
     #[test]
@@ -220,17 +220,10 @@ mod tests {
             TestStats,
             TestStatsFlags,
             u32,
-            derive(Debug, Clone),
+            derive(Debug, Clone, PartialEq),
             A(u8) => 1 << 0,
             B(u16) => 1 << 1,
         );
-
-        impl PartialEq for TestStatsAll {
-            fn eq(&self, other: &Self) -> bool {
-                self.a == other.a && self.b == other.b
-            }
-        }
-
         let _all = TestStatsAll { a: 1, b: 2 };
 
         let partial = TestStatsPartial {
@@ -244,14 +237,8 @@ mod tests {
 
         //TODO: enc_dec_test(TestStatsAll::new(TestStatsAllData { a: 0xaa, b: 0x1234 }));
 
-        impl PartialEq for TestStatsPartial {
-            fn eq(&self, other: &Self) -> bool {
-                self.a == other.a && self.b == other.b
-            }
-        }
-
         pub type TestPartialData = PartialFlag<(), TestStatsPartial>;
-        test_enc_dec(TestPartialData::from(
+        test_enc_dec_borrow!(TestPartialData::from(
             TestStatsPartial {
                 a: None.into(),
                 b: Some(0x1234).into(),

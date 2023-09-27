@@ -30,6 +30,29 @@ pub use wrapped::{PacketTryWrapped, PacketWrapped};
 
 use crate::{PacketReader, PacketResult, PacketWriter, ShroomPacketData, SizeHint};
 
+/// Decode a `u128` from the given byte array
+pub(crate) fn shroom128_from_bytes(data: [u8; 16]) -> u128 {
+    // u128 are stored as 4 u32 little endian encoded blocks
+    // but the blocks are itself in LE order aswell
+    // so we have to reverse it
+    let mut data: [u32; 4] = bytemuck::cast(data);
+    data.reverse();
+    u128::from_le_bytes(bytemuck::cast(data))
+}
+
+/// Encode a `u128` into a byte array
+pub(crate) fn shroom128_to_bytes(v: u128) -> [u8; 16] {
+    let mut blocks: [u32; 4] = bytemuck::cast(v.to_le_bytes());
+    blocks.reverse();
+    bytemuck::cast(blocks)
+}
+
+/// Required length to encode this string
+pub(crate) fn packet_str_len(s: &str) -> usize {
+    // len(u16) + data
+    2 + s.len()
+}
+
 /// Decodes this type from a packet reader
 pub trait DecodePacket<'de>: Sized {
     /// Decodes the packet
@@ -185,5 +208,17 @@ mod tests {
         assert_eq!(<((), (),)>::SIZE_HINT.0, Some(0));
         assert_eq!(<((), u32,)>::SIZE_HINT.0, Some(4));
         assert_eq!(<((), u32, String)>::SIZE_HINT.0, None);
+    }
+
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_shroom128(v: u128) {
+            let bytes = shroom128_to_bytes(v);
+            let v2 = shroom128_from_bytes(bytes);
+            assert_eq!(v, v2);
+        }
     }
 }

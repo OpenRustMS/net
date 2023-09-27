@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use array_init::try_array_init;
 use bytes::BufMut;
 use either::Either;
@@ -6,11 +8,30 @@ use crate::{PacketReader, PacketResult, PacketWriter, SizeHint};
 
 use super::{DecodePacket, EncodePacket};
 
-impl<'de> DecodePacket<'de> for () {
-    fn decode_packet(_pr: &mut PacketReader<'de>) -> PacketResult<Self> {
-        Ok(())
-    }
+macro_rules! impl_thin_wrapped {
+    ($ty:ty) => {
+        impl<T: EncodePacket> EncodePacket for $ty {
+            const SIZE_HINT: SizeHint = T::SIZE_HINT;
+
+            fn packet_len(&self) -> usize {
+                self.as_ref().packet_len()
+            }
+
+            fn encode_packet<B: BufMut>(&self, pw: &mut PacketWriter<B>) -> PacketResult<()> {
+                self.as_ref().encode_packet(pw)
+            }
+        }
+
+        impl<'de, T: DecodePacket<'de>> DecodePacket<'de> for $ty {
+            fn decode_packet(pr: &mut PacketReader<'de>) -> PacketResult<Self> {
+                Ok(Self::new(T::decode_packet(pr)?))
+            }
+        }
+    };
 }
+
+impl_thin_wrapped!(Arc<T>);
+impl_thin_wrapped!(std::rc::Rc<T>);
 
 impl EncodePacket for () {
     const SIZE_HINT: SizeHint = SizeHint::ZERO;
@@ -24,25 +45,25 @@ impl EncodePacket for () {
     }
 }
 
-impl<A, B> EncodePacket for Either<A, B>
+impl<'de> DecodePacket<'de> for () {
+    fn decode_packet(_pr: &mut PacketReader<'de>) -> PacketResult<Self> {
+        Ok(())
+    }
+}
+
+impl<L, R> EncodePacket for Either<L, R>
 where
-    A: EncodePacket,
-    B: EncodePacket,
+    L: EncodePacket,
+    R: EncodePacket,
 {
     const SIZE_HINT: SizeHint = SizeHint::NONE;
 
     fn encode_packet<T: BufMut>(&self, pw: &mut PacketWriter<T>) -> PacketResult<()> {
-        match self {
-            Either::Left(a) => a.encode_packet(pw),
-            Either::Right(b) => b.encode_packet(pw),
-        }
+        either::for_both!(self, v => v.encode_packet(pw))
     }
 
     fn packet_len(&self) -> usize {
-        match self {
-            Either::Left(l) => l.packet_len(),
-            Either::Right(r) => r.packet_len(),
-        }
+        either::for_both!(self, v => v.packet_len())
     }
 }
 

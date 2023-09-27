@@ -12,6 +12,22 @@ impl SizeHint {
         Self(Some(n))
     }
 
+    /// Returns the maximum of both usizes
+    pub const fn max(self, rhs: Self) -> Self {
+        const fn max_inner(a: usize, b: usize) -> usize {
+            if a > b {
+                a
+            } else {
+                b
+            }
+        }
+
+        Self(match (self.0, rhs.0) {
+            (Some(a), Some(b)) => Some(max_inner(a, b)),
+            _ => None,
+        })
+    }
+
     /// Sum two Option<usize>
     /// When const traits become stable Add can be implemented
     pub const fn add(self, rhs: Self) -> Self {

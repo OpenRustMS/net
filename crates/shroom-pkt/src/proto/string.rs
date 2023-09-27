@@ -82,7 +82,7 @@ fn from_c_str<const N: usize>(b: &[u8; N]) -> Result<ArrayString<N>, Utf8Error> 
 /// A fixed string with the capacity of `N` bytes
 /// If the len is less than `N` padding bytes 0 will be added
 /// after the data
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Default)]
 pub struct FixedPacketString<const N: usize>(pub arrayvec::ArrayString<N>);
 
 impl<const N: usize> PacketTryWrapped for FixedPacketString<N> {
