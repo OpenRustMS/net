@@ -40,7 +40,7 @@ pub trait SessionBackend {
     }
 
     /// Closes the session
-    async fn close(&self, session: Self::Data) -> Result<(), Self::Error>;
+    async fn close(&self, session: &mut Self::Data) -> Result<(), Self::Error>;
 
     /// Transition the session into a new state
     async fn transition(
@@ -185,7 +185,7 @@ where
     /// Helper function to close a session
     async fn close_session_inner(
         &self,
-        mut session_data: Backend::Data,
+        mut session_data: &mut Backend::Data,
     ) -> SessionResult<(), Backend> {
         // After the session is removed save It
         self.backend
@@ -203,13 +203,14 @@ where
 
     /// Closes a session, but catches potential panics
     /// and errors during the process to close the session
-    async fn safe_close(&self, session_data: Backend::Data) -> SessionResult<(), Backend> {
-        /*let res = AssertUnwindSafe(self.close_session_inner(session_data))
-        .catch_unwind()
-        .await;*/
-        //TODO handle unwinding
-        let res = self.close_session_inner(session_data).await;
-        res
+    async fn safe_close(&self, session_data: &mut Backend::Data) -> SessionResult<(), Backend> {
+        let res = AssertUnwindSafe(self.close_session_inner(session_data))
+            .catch_unwind()
+            .await;
+        match res {
+            Ok(res) => res,
+            Err(_) => Err(SessionError::SavePanic),
+        }
     }
 
     /// Create a session with the given key and data
@@ -275,9 +276,10 @@ where
             // Drop the lock
             drop(session_lock);
             // We held the lock before removing it, so there's only this reference left
-            let session = Arc::try_unwrap(session).unwrap_or_else(|_| panic!("locked session"));
+            //let session = Arc::try_unwrap(session).unwrap_or_else(|_| panic!("locked session")));
+            let mut session = session.try_lock().unwrap();
 
-            let res = self.safe_close(session.into_inner()).await;
+            let res = self.safe_close(&mut session).await;
             if let Err(err) = res {
                 log::error!("Error during saving Session: {err:?}");
             }
@@ -296,8 +298,8 @@ where
         // Release lock to decrement the ref count to 1
         drop(owned_session);
         // Now we can claim the session
-        let session = Arc::try_unwrap(session).unwrap_or_else(|_| panic!("arc session data"));
-        self.safe_close(session.into_inner()).await
+        let mut session = session.try_lock().unwrap();
+        self.safe_close(&mut session).await
     }
 
     /// Create a sessions with the given key and the load parameter
@@ -367,7 +369,7 @@ mod tests {
         }
 
         /// Closes the session
-        async fn close(&self, _session: Self::Data) -> Result<(), Self::Error> {
+        async fn close(&self, _session: &mut Self::Data) -> Result<(), Self::Error> {
             Ok(())
         }
 
